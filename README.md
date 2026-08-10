@@ -39,7 +39,9 @@ nào trong ba trường hợp đó có gì để kết nối tới.
 | Endpoint tuần 3 khai thác được, nay không tới được | **2** — `/ftp`, `/rest/basket/{id}` |
 | API key xuất hiện trong log | **0** |
 
-Chi tiết + transcript từng mã lỗi: [`reports/README.md`](reports/README.md).
+**Báo cáo đầy đủ:** [`reports/2026-08-14_TrinhThiLanAnh_Week4.md`](reports/2026-08-10_TrinhThiLanAnh_Track0.md)  
+Khái niệm gateway viết lại bằng cách em hiểu: [`reports/cac_khai_niem.md`](reports/cac_khai_niem.md)  
+Transcript từng mã lỗi: [`reports/evidence/`](reports/evidence/)
 
 **Quan sát đáng chú ý:** payload `special-quotes` — đúng hai ký tự `"` và `'`,
 không có `OR`, không có `UNION`, không có comment — làm `GET /rest/products/search`
@@ -92,7 +94,7 @@ nguyên vẹn.
 | `scripts/` | `up.sh` `down.sh` `smoke.sh` `verify.sh` |
 | `docs/` | **Quá trình**: phương pháp + 4 ADR |
 | `data/` | **Output máy**: audit log của tool và của gateway — xoá được |
-| `reports/` | **Kết quả**: bằng chứng + bảng suite |
+| `reports/` | **Kết quả**: báo cáo + bằng chứng + bảng suite |
 | `tests/` | 112 test |
 
 Ba ranh giới cần giữ:
@@ -149,7 +151,7 @@ PYTHONPATH=src python3 -m safe_probe.cli plan --goal "input validation" --rounds
 2. `docker-compose.yml` — khối `networks` ở cuối là luận điểm chính
 3. [`docs/adr/0003-topology-la-bang-chung.md`](docs/adr/0003-topology-la-bang-chung.md) — vì sao khối đó quan trọng hơn mọi thứ khác
 4. [`docs/methodology.md`](docs/methodology.md) — bốn lớp kiểm soát, xếp từ yếu tới mạnh
-5. [`reports/README.md`](reports/README.md) — chứng minh được cái gì
+5. [`reports/2026-08-10_TrinhThiLanAnh_Track0.md`](reports/2026-08-10_TrinhThiLanAnh_Track0.md) — báo cáo đầy đủ
 
 ## ADR
 

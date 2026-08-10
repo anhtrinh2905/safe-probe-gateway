@@ -26,15 +26,15 @@ qua allowlist của chính nó; nó không sửa được cấu hình của mộ
 | `scripts/` | Entrypoint bash: up/down/smoke/verify | — | Có |
 | `docs/` | **Quá trình**: phương pháp, ADR | Người | Có |
 | `data/` | **Output thô**: audit log của tool và của gateway | Máy | **Không** — regenerate |
-| `reports/` | **Kết quả**: bằng chứng + bảng suite | Người | Có |
+| `reports/` | **Kết quả**: báo cáo + bằng chứng + bảng suite | Người | Có |
 | `tests/` | pytest | — | Có |
 
 Ba nhầm lẫn hay gặp:
 
 1. **Đừng để kết luận trong `data/`.** `data/` do `scripts/up.sh` và tool sinh ra,
    xoá đi chạy lại được. Xoá `data/` không được phép làm mất công sức trí óc nào.
-2. **Đừng để quá trình trong `reports/`.** `reports/README.md` trả lời "chứng minh
-   được cái gì". "Làm thế nào và vì sao" thuộc về `docs/`.
+2. **Đừng để quá trình trong `reports/`.** `reports/2026-08-14_TrinhThiLanAnh_Week4.md`
+   trả lời "chứng minh được cái gì". "Làm thế nào và vì sao" thuộc về `docs/`.
 3. **Đừng để chính sách trong code.** Allowlist, rate limit, timeout, kích thước —
    tất cả nằm trong `gateway/policy.yml`. `gateway/app.py` phải generic.
 
