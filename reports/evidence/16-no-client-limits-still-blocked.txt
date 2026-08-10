@@ -1,0 +1,23 @@
+# Tắt sạch giới hạn phía client (--no-client-limits). Gateway vẫn từ chối y hệt.
+# Đây là cách chứng minh lớp nào đang gánh việc.
+
+$ probe --no-client-limits get /ftp
+block GET  /ftp                                    404 blocked                 65B    10ms
+      gateway decision: blocked-route
+$ probe --no-client-limits get /rest/basket/1
+block GET  /rest/basket/1                          404 blocked                 75B    10ms
+      gateway decision: blocked-route
+$ probe --no-client-limits get /api/Users
+block GET  /api/Users                              404 blocked                 71B     9ms
+      gateway decision: blocked-route
+$ probe --no-client-limits get /metrics
+      GET  /metrics                                403 forbidden               69B    10ms
+      gateway decision: forbidden-group
+
+$ probe --no-client-limits get /api/Products --wrong-key
+      GET  /api/Products                           401 unauthorized            62B     9ms
+      gateway decision: unauthorized
+
+$ probe --no-client-limits get //evil.example/x   # tool tự từ chối, chưa ra tới dây
+      GET  //evil.example/x                          - scope_violation          0B     0ms
+      error: refused: '//evil.example/x' is a network-path reference

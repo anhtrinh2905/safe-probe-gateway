@@ -1,0 +1,12 @@
+# GET /slow?ms=9000 (gateway gives up at 5s)
+$ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/slow?ms=9000
+
+HTTP/1.1 504 Gateway Timeout
+date: Mon, 10 Aug 2026 05:41:27 GMT
+server: uvicorn
+x-gateway-decision: upstream-timeout
+content-length: 70
+content-type: application/json
+
+{"error":"upstream-timeout","detail":"lab did not answer within 5.0s"}
+expected 504, got 504

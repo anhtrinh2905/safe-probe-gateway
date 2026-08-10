@@ -1,0 +1,12 @@
+# GET /api/Users (reads other people's data)
+$ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/api/Users
+
+HTTP/1.1 404 Not Found
+date: Mon, 10 Aug 2026 05:41:27 GMT
+server: uvicorn
+x-gateway-decision: blocked-route
+content-length: 71
+content-type: application/json
+
+{"error":"blocked-route","detail":"/api/Users is not in the allowlist"}
+expected 404, got 404

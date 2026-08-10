@@ -1,0 +1,36 @@
+[project]
+name = "safe-probe"
+version = "0.1.0"
+description = "Agent-proposed safe HTTP probes, forced through an API gateway"
+requires-python = ">=3.11"
+# Deliberately empty. The gateway has its own dependency set inside its own
+# container; the probing tool is the thing under test and stays stdlib-only so
+# that what it can reach is easy to audit.
+dependencies = []
+
+[project.scripts]
+probe = "safe_probe.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/safe_probe"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

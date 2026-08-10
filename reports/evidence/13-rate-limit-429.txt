@@ -1,0 +1,15 @@
+# 45 requests as fast as curl can send them. Limit is 30/minute.
+
+  HTTP 200 : 29
+  HTTP 429 : 16
+
+# The 429 in full, with Retry-After:
+HTTP/1.1 429 Too Many Requests
+date: Mon, 10 Aug 2026 05:41:34 GMT
+server: uvicorn
+x-gateway-decision: rate-limited
+retry-after: 2
+content-length: 63
+content-type: application/json
+
+{"error":"rate-limited","detail":"limit is 30 requests/minute"}

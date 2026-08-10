@@ -1,0 +1,34 @@
+# Payload an toàn 'special-quotes' (hai ký tự " và ') làm endpoint search trả HTTP 500.
+# Không phải payload injection -- không có OR, không có UNION, không có comment.
+
+$ probe get /rest/products/search --payload special-quotes -v
+      GET  /rest/products/search                   500 upstream_server_error    1084B    31ms
+      ---
+      <html>
+        <head>
+          <meta charset='utf-8'> 
+          <title>Error: SQLITE_ERROR: unrecognized token: &quot;&quot;&#39;%&#39;) AND deletedAt IS NULL) ORDER BY name&quot;</title>
+          <style>* {
+        margin: 0;
+        padding: 0;
+        outline: 0;
+      }
+      
+      body {
+        padding: 80px 100px;
+
+$ probe post /rest/user/login --field email --payload special-quotes --field-value password=nope -v
+      POST /rest/user/login                        500 upstream_server_error    1449B    24ms
+      ---
+      <html>
+        <head>
+          <meta charset='utf-8'> 
+          <title>Error</title>
+          <style>* {
+        margin: 0;
+        padding: 0;
+        outline: 0;
+      }
+      
+      body {
+        padding: 80px 100px;

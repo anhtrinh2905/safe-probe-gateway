@@ -1,0 +1,131 @@
+{
+  "goal": "input validation on the allowlisted endpoints",
+  "model": "deepseek-v4-pro",
+  "reasoning": [
+    "The probes target input validation across different parameter types: string length in search, empty credentials in login, special character handling in echo, numeric boundary in slow and big, and type correctness in login. This variety helps identify missing validation or improper handling without attempting exploitation.",
+    "We are targeting input validation gaps by probing empty data, wrong types, and boundary conditions. The chosen probes cover different endpoints: search empty validation, login type handling, slow parameter boundaries, big zero-size, and echo encoding correctness. These extend beyond the first round, which already tested length and basic type handling, to uncover more subtle validation issues."
+  ],
+  "rejected": [],
+  "probes": [
+    {
+      "route_id": "products-search",
+      "payload_id": "long-1k",
+      "why": "Test if search query length is validated; a 1KB query may cause buffer overflow or performance issues.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 30,
+      "body_excerpt": "{\"status\":\"success\",\"data\":[]}"
+    },
+    {
+      "route_id": "login",
+      "payload_id": "empty-string",
+      "why": "Verify handling of empty credentials; a missing password or username should be rejected with validation error.",
+      "status": 401,
+      "outcome": "upstream_client_error",
+      "answered_by": "upstream",
+      "response_bytes": 26,
+      "body_excerpt": "Invalid email or password."
+    },
+    {
+      "route_id": "echo",
+      "payload_id": "special-quotes",
+      "why": "Check if the echo endpoint reflects quote characters safely without breaking the response format.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 141,
+      "body_excerpt": "{\"received_bytes\":16,\"content_type\":\"application/json\",\"parsed_json\":{\"value\":\"\\\"'\"},\"parse_error\":null,\"body_head\":\"{\\\"value\\\": \\\"\\\\\\\"'\\\"}\"}"
+    },
+    {
+      "route_id": "slow",
+      "payload_id": "boundary-zero",
+      "why": "Test if zero milliseconds is accepted; zero could cause division by zero or infinite loops in delay logic.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 14,
+      "body_excerpt": "{\"slept_ms\":0}"
+    },
+    {
+      "route_id": "big",
+      "payload_id": "boundary-int64",
+      "why": "Validate that an extremely large kb value is handled, preventing integer overflow or excessive memory allocation.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 64000,
+      "body_excerpt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "route_id": "login",
+      "payload_id": "wrong-type-int",
+      "why": "Test type enforcement: sending an integer where a string is expected may reveal coercion issues or crashes.",
+      "status": 401,
+      "outcome": "upstream_client_error",
+      "answered_by": "upstream",
+      "response_bytes": 26,
+      "body_excerpt": "Invalid email or password."
+    },
+    {
+      "route_id": "products-search",
+      "payload_id": "empty-string",
+      "why": "Test if the search endpoint accepts an empty query string, potentially returning all products or an error, revealing whether empty is validated.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 16578,
+      "body_excerpt": "{\"status\":\"success\",\"data\":[{\"id\":1,\"name\":\"Apple Juice (1000ml)\",\"description\":\"The all-time classic.\",\"price\":1.99,\"deluxePrice\":0.99,\"image\":\"apple_juice.jpg\",\"createdAt\":\"2026-08-10 05:17:48.720 +00:00\",\"updatedAt\":\"2026-08-10 05:17:48.720 +00:00\",\"deletedAt\":null},{\"id\":24,\"name\":\"Apple Pomace\""
+    },
+    {
+      "route_id": "login",
+      "payload_id": "wrong-type-object",
+      "why": "Check if the login endpoint gracefully handles an object payload instead of a string, possibly causing a server error or invalid-credentials response.",
+      "status": 401,
+      "outcome": "upstream_client_error",
+      "answered_by": "upstream",
+      "response_bytes": 26,
+      "body_excerpt": "Invalid email or password."
+    },
+    {
+      "route_id": "slow",
+      "payload_id": "boundary-negative",
+      "why": "Probe whether a negative sleep duration (ms) is rejected or accepted, which could indicate missing validation on the parameter.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 14,
+      "body_excerpt": "{\"slept_ms\":0}"
+    },
+    {
+      "route_id": "slow",
+      "payload_id": "wrong-type-float",
+      "why": "Test if the slow endpoint accepts a float for ms, where an integer is expected, showing potential type coercion or rejection.",
+      "status": 422,
+      "outcome": "upstream_client_error",
+      "answered_by": "upstream",
+      "response_bytes": 148,
+      "body_excerpt": "{\"detail\":[{\"type\":\"int_parsing\",\"loc\":[\"query\",\"ms\"],\"msg\":\"Input should be a valid integer, unable to parse string as an integer\",\"input\":\"1.5\"}]}"
+    },
+    {
+      "route_id": "big",
+      "payload_id": "boundary-zero",
+      "why": "Check the behavior when requesting zero kilobytes, a boundary condition that might return empty content or an error.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 0,
+      "body_excerpt": ""
+    },
+    {
+      "route_id": "echo",
+      "payload_id": "unicode-emoji",
+      "why": "Verify that multi-byte characters like emoji are correctly reflected back by the echo endpoint, ensuring proper encoding handling.",
+      "status": 200,
+      "outcome": "ok",
+      "answered_by": "upstream",
+      "response_bytes": 173,
+      "body_excerpt": "{\"received_bytes\":33,\"content_type\":\"application/json\",\"parsed_json\":{\"value\":\"日本語 🎉 ñ Ω\"},\"parse_error\":null,\"body_head\":\"{\\\"value\\\": \\\"日本語 🎉 ñ Ω\\\"}\"}"
+    }
+  ]
+}

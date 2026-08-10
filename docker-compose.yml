@@ -1,0 +1,76 @@
+# The topology is the security control. Read the `networks` block first.
+#
+# `internal: true` means Docker creates no route from that network to anywhere
+# outside it, and neither target declares `ports:`. So there is no address on the
+# host that reaches juice-shop or lab-app. The only published port in this file
+# is the gateway's.
+#
+# That is what makes "every request goes through the gateway" checkable rather
+# than promised:  curl localhost:3000  ->  Connection refused.
+#
+# Adding `ports:` to a target would remove the only thing this repo proves.
+# See AGENTS.md and docs/adr/0003-topology-la-bang-chung.md.
+
+name: week4-api-gateway
+
+services:
+  gateway:
+    build: ./gateway
+    container_name: w4-gateway
+    ports:
+      - "8000:8000"          # the only door
+    networks:
+      - edge
+      - internal
+    env_file:
+      - .env
+    environment:
+      GATEWAY_POLICY: /app/policy.yml
+      GATEWAY_LOG: /var/log/gateway/access.jsonl
+    volumes:
+      # Policy is data: edit and restart the gateway, no rebuild.
+      - ./gateway/policy.yml:/app/policy.yml:ro
+      # Audit log lands in data/, which AGENTS.md says is disposable.
+      - ./data/gateway:/var/log/gateway
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/_gateway/health', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      lab-app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lab-app:
+    build: ./targets/lab-app
+    container_name: w4-lab-app
+    networks:
+      - internal          # no ports: unreachable except through the gateway
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    container_name: w4-juice-shop
+    networks:
+      - internal          # week 3 published 3000 here; week 4 must not
+    environment:
+      NODE_ENV: unsafe
+    # No healthcheck: this image has no shell and no `node`, `curl` or `wget` on
+    # PATH, so every in-container probe fails and the container reads "unhealthy"
+    # while serving traffic perfectly. `scripts/up.sh` waits on it from outside
+    # instead -- through the gateway, which is a more useful thing to wait for
+    # anyway: a 200 there means the whole path works, not just the upstream.
+    restart: unless-stopped
+
+networks:
+  edge:
+    name: w4-edge
+  internal:
+    name: w4-internal
+    internal: true

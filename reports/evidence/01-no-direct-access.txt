@@ -1,0 +1,8 @@
+# Targets publish no ports (docker-compose.yml, network internal: true).
+$ curl --max-time 2 http://localhost:3000/   # juice-shop
+
+$ curl --max-time 2 http://localhost:8080/health   # lab-app
+
+$ docker inspect -f '{{json .NetworkSettings.Ports}}' w4-juice-shop w4-lab-app
+/w4-juice-shop {"3000/tcp":null}
+/w4-lab-app {"8080/tcp":null}

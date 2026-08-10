@@ -1,0 +1,17 @@
+# GET /big?kb=500 -- upstream returns 500 KB, gateway caps at 256 KB.
+$ curl -sD - -o /tmp/w4-big.bin '$GATEWAY_URL/big?kb=500'
+
+HTTP/1.1 200 OK
+date: Mon, 10 Aug 2026 05:41:33 GMT
+server: uvicorn
+date: Mon, 10 Aug 2026 05:41:32 GMT
+server: uvicorn
+content-type: text/plain; charset=utf-8
+x-gateway-decision: allowed
+x-gateway-route: big
+x-gateway-truncated: true
+content-length: 262144
+
+
+bytes actually received:   262144
+max_response_bytes:      262144
