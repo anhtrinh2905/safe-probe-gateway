@@ -1,8 +1,8 @@
-# GET /api/Products with no key
-$ curl -i http://localhost:8000/api/Products
+# GET /api/Products with a wrong key
+$ curl -i -H X-API-Key: definitely-not-the-key http://localhost:8000/api/Products
 
 HTTP/1.1 401 Unauthorized
-date: Mon, 10 Aug 2026 05:41:27 GMT
+date: Wed, 12 Aug 2026 04:22:36 GMT
 server: uvicorn
 x-gateway-decision: unauthorized
 content-length: 62

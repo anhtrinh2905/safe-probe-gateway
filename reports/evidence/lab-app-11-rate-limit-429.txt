@@ -1,0 +1,13 @@
+# GET /status/200 after the bucket is empty
+$ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/status/200
+
+HTTP/1.1 429 Too Many Requests
+date: Wed, 12 Aug 2026 04:22:44 GMT
+server: uvicorn
+x-gateway-decision: rate-limited
+retry-after: 1
+content-length: 63
+content-type: application/json
+
+{"error":"rate-limited","detail":"limit is 30 requests/minute"}
+expected 429, got 429

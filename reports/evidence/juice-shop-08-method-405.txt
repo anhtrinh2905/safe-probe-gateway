@@ -2,7 +2,7 @@
 $ curl -i -X POST -H X-API-Key: ***REDACTED*** -H Content-Type: application/json -d {} http://localhost:8000/api/Products
 
 HTTP/1.1 405 Method Not Allowed
-date: Mon, 10 Aug 2026 05:41:27 GMT
+date: Wed, 12 Aug 2026 04:22:36 GMT
 server: uvicorn
 x-gateway-decision: blocked-method
 content-length: 84

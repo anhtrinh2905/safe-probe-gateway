@@ -92,7 +92,8 @@ khi lớp LLM bị prompt injection — không cái nào trong ba trường hợ
 kết nối tới.
 
 `scripts/up.sh` tự kiểm tra điều này ở bước cuối và **exit 1** nếu port bị hở.
-Bằng chứng: [evidence/01-no-direct-access.txt](evidence/01-no-direct-access.txt).
+Bằng chứng: [juice-shop-01](evidence/juice-shop-01-no-direct-access.txt) ·
+[lab-app-01](evidence/lab-app-01-no-direct-access.txt).
 
 ### Kết quả tổng
 
@@ -194,26 +195,41 @@ minh gì về gateway. `curl` không tuân thủ gì cả — thứ gì từ ch�
 
 | # | Kiểm soát | Kết quả | Bằng chứng |
 | --- | --- | --- | --- |
-| 1 | Target không tới được từ host | `Connection refused` ×2 | [01](evidence/01-no-direct-access.txt) |
-| 2 | Đường đi hợp lệ | `200` + `X-Gateway-Route: products` | [02](evidence/02-allowed-200.txt) |
-| 3 | `/ftp` — **tuần 3 TP-4** | `404 blocked-route` | [03](evidence/03-blocked-ftp.txt) |
-| 4 | `/rest/basket/1` — **tuần 3 TP-5** | `404 blocked-route` | [04](evidence/04-blocked-basket.txt) |
-| 5 | `/api/Users` | `404 blocked-route` | [05](evidence/05-blocked-users.txt) |
-| 6 | Không có key | `401 unauthorized` | [06](evidence/06-no-key-401.txt) |
-| 7 | Key sai | `401 unauthorized` | [07](evidence/07-wrong-key-401.txt) |
-| 8 | Sai method | `405 blocked-method` | [08](evidence/08-method-405.txt) |
-| 9 | Thiếu ACL group | `403 forbidden-group` | [09](evidence/09-forbidden-403.txt) |
-| 10 | Request 128 KB (cap 64 KB) | `413 request-too-large` | [10](evidence/10-request-413.txt) |
-| 11 | Upstream chậm 9s (cap 5s) | `504 upstream-timeout` | [11](evidence/11-upstream-timeout-504.txt) |
-| 12 | Response 500 KB (cap 256 KB) | nhận đúng **262 144 B** | [12](evidence/12-response-truncated.txt) |
-| 13 | 45 request liên tiếp (cap 30/ph) | **29× 200, 16× 429** + `Retry-After: 2` | [13](evidence/13-rate-limit-429.txt) |
-| 14 | Nhật ký gateway không chứa key | grep → không có | [14](evidence/14-gateway-log-clean.txt) |
+| 1 | Target không tới được từ host | `Connection refused` ×2 | [juice-shop-01](evidence/juice-shop-01-no-direct-access.txt) · [lab-app-01](evidence/lab-app-01-no-direct-access.txt) |
+| 2 | Đường đi hợp lệ | `200` + `X-Gateway-Route: products` | [juice-shop-02](evidence/juice-shop-02-allowed-200.txt) |
+| 3 | `/ftp` — **tuần 3 TP-4** | `404 blocked-route` | [juice-shop-03](evidence/juice-shop-03-blocked-ftp.txt) |
+| 4 | `/rest/basket/1` — **tuần 3 TP-5** | `404 blocked-route` | [juice-shop-04](evidence/juice-shop-04-blocked-basket.txt) |
+| 5 | `/api/Users` | `404 blocked-route` | [juice-shop-05](evidence/juice-shop-05-blocked-users.txt) |
+| 6 | Không có key | `401 unauthorized` | [juice-shop-06](evidence/juice-shop-06-no-key-401.txt) |
+| 7 | Key sai | `401 unauthorized` | [juice-shop-07](evidence/juice-shop-07-wrong-key-401.txt) |
+| 8 | Sai method | `405 blocked-method` | [juice-shop-08](evidence/juice-shop-08-method-405.txt) |
+| 9 | Thiếu ACL group | `403 forbidden-group` | [juice-shop-09](evidence/juice-shop-09-forbidden-403.txt) |
+| 10 | Request 128 KB (cap 64 KB) | `413 request-too-large` | [lab-app-02](evidence/lab-app-02-request-413.txt) |
+| 11 | Upstream chậm 9s (cap 5s) | `504 upstream-timeout` | [lab-app-03](evidence/lab-app-03-upstream-timeout-504.txt) |
+| 12 | Response 500 KB (cap 256 KB) | nhận đúng **262 144 B** | [lab-app-04](evidence/lab-app-04-response-truncated.txt) |
+| 13 | 45 request liên tiếp (cap 30/ph) | **29× 200, 16× 429** + `Retry-After: 2` | [juice-shop-10](evidence/juice-shop-10-rate-limit-429.txt) |
+| 14 | Nhật ký gateway không chứa key | grep → không có | [gateway-01](evidence/gateway-01-log-clean.txt) |
 
-**14 pass, 0 fail.**
+**22 pass, 0 fail** (gồm thêm các case lab-app trong bảng dưới).
 
-Kiểm tra 11–13 cần một upstream chịu trả lời chậm 9 giây và trả về đúng 500 KB —
+#### lab-app — đủ nhánh flowchart gateway → lab
+
+| Flowchart | Kết quả | Bằng chứng |
+| --- | --- | --- |
+| Topology: không gọi thẳng | Connection refused | [lab-app-01](evidence/lab-app-01-no-direct-access.txt) |
+| Auth: thiếu / sai key | `401` | [lab-app-05](evidence/lab-app-05-no-key-401.txt) · [lab-app-06](evidence/lab-app-06-wrong-key-401.txt) |
+| Auth ACL `403` | *(không có route lab `admin`)* — cùng cơ chế với [juice-shop-09](evidence/juice-shop-09-forbidden-403.txt) | — |
+| Rate limit | `429` trên `/status/200` sau khi cạn bucket | [lab-app-11](evidence/lab-app-11-rate-limit-429.txt) |
+| Path ngoài policy (`/health`, `/items`) | `404 blocked-route` | [lab-app-07](evidence/lab-app-07-blocked-health-404.txt) · [lab-app-08](evidence/lab-app-08-blocked-items-404.txt) |
+| Body > 64 KB | `413` | [lab-app-02](evidence/lab-app-02-request-413.txt) |
+| `POST /echo` | `200` + phản chiếu | [lab-app-09](evidence/lab-app-09-echo-allowed-200.txt) |
+| `GET /slow?ms=9000` | `504` | [lab-app-03](evidence/lab-app-03-upstream-timeout-504.txt) |
+| `GET /big?kb=500` | cắt tại 262144 B | [lab-app-04](evidence/lab-app-04-response-truncated.txt) |
+| `GET /status/418` | `418` | [lab-app-10](evidence/lab-app-10-status-418.txt) |
+
+Kiểm tra timeout / truncate cần một upstream chịu trả lời chậm 9 giây và trả về đúng 500 KB —
 Juice Shop không làm được, nên `lab-app` (~80 dòng: `/slow?ms=`, `/big?kb=`,
-`/echo`) tồn tại để "504 đến từ timeout" và "body cắt đúng cap" là *nhìn thấy*
+`/echo`, `/status/{code}`) tồn tại để các giới hạn đó là *nhìn thấy*
 chứ không phải *suy ra*.
 
 ### Chứng minh lớp nào đang gánh việc
@@ -232,7 +248,7 @@ $ probe --no-client-limits get /metrics
 
 Không đổi gì. Cờ này tồn tại để chứng minh, không phải để tiện — nếu không có nó,
 báo cáo sẽ không phân biệt được lớp nào đang có tác dụng.
-[evidence/16](evidence/16-no-client-limits-still-blocked.txt).
+[juice-shop-12](evidence/juice-shop-12-no-client-limits-still-blocked.txt).
 
 ---
 
@@ -371,7 +387,7 @@ trong trang lỗi.
 
 Đây vẫn là một **quan sát**, chưa phải finding. Nó cần một người kết luận nó
 nghĩa là gì, đúng như quy trình tuần 3.
-[evidence/15](evidence/15-safe-payload-500.txt).
+[juice-shop-11](evidence/juice-shop-11-safe-payload-500.txt).
 
 ---
 
@@ -434,7 +450,7 @@ cũng là đường prompt-injection duy nhất còn lại. Prompt nói rõ mọ
 liệu không tin cậy, nhưng đó là biện pháp yếu và **không phải** thứ đang giữ an
 toàn. Thứ đang giữ an toàn là danh sách đóng.
 
-[evidence/17-llm-plan-run.json](evidence/17-llm-plan-run.json) ·
+[gateway-02-llm-plan-run.json](evidence/gateway-02-llm-plan-run.json) ·
 [ADR 0002](../docs/adr/0002-guardrail-hai-lop.md).
 
 ### 6.3. Chi phí
@@ -474,7 +490,7 @@ Gateway có bản redaction **riêng**, không dùng chung code — hai thành p
 
 `scripts/verify.sh` grep key thật trong `data/` và `reports/` rồi chạy
 `ggshield secret scan`. Kết quả: không có.
-[evidence/14](evidence/14-gateway-log-clean.txt) · [methodology §7](../docs/methodology.md).
+[gateway-01](evidence/gateway-01-log-clean.txt) · [methodology §7](../docs/methodology.md).
 
 ---
 

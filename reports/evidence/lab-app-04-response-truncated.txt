@@ -2,9 +2,9 @@
 $ curl -sD - -o /tmp/w4-big.bin '$GATEWAY_URL/big?kb=500'
 
 HTTP/1.1 200 OK
-date: Mon, 10 Aug 2026 05:41:33 GMT
+date: Wed, 12 Aug 2026 04:22:42 GMT
 server: uvicorn
-date: Mon, 10 Aug 2026 05:41:32 GMT
+date: Wed, 12 Aug 2026 04:22:42 GMT
 server: uvicorn
 content-type: text/plain; charset=utf-8
 x-gateway-decision: allowed

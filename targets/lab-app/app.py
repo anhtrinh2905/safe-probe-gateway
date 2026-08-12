@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-app = FastAPI(title="lab-app", docs_url=None, redoc_url=None)
+app = FastAPI(title="lab-app")
 
 MAX_SLEEP_S = 30.0
 MAX_KB = 4096

@@ -2,7 +2,7 @@
 $ curl -i -X POST -H X-API-Key: ***REDACTED*** -H Content-Type: application/json --data-binary @/tmp/w4-oversized.json http://localhost:8000/echo
 
 HTTP/1.1 413 Request Entity Too Large
-date: Mon, 10 Aug 2026 05:41:27 GMT
+date: Wed, 12 Aug 2026 04:22:37 GMT
 server: uvicorn
 x-gateway-decision: request-too-large
 content-length: 93

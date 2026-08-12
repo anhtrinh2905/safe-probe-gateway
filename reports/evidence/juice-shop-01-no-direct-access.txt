@@ -1,0 +1,5 @@
+# juice-shop publishes no ports (docker-compose.yml, network internal: true).
+$ curl --max-time 2 http://localhost:3000/   # juice-shop
+
+$ docker inspect -f '{{json .NetworkSettings.Ports}}' w4-juice-shop
+/w4-juice-shop {"3000/tcp":null}

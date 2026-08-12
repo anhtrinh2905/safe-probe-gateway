@@ -1,0 +1,12 @@
+# GET /health (lab-app path, not in allowlist)
+$ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/health
+
+HTTP/1.1 404 Not Found
+date: Wed, 12 Aug 2026 04:22:37 GMT
+server: uvicorn
+x-gateway-decision: blocked-route
+content-length: 68
+content-type: application/json
+
+{"error":"blocked-route","detail":"/health is not in the allowlist"}
+expected 404, got 404

@@ -53,7 +53,7 @@ Error: SQLITE_ERROR: unrecognized token: ""'%') AND deletedAt IS NULL) ORDER BY 
 
 Tuần 3 đã kết luận endpoint này có SQL injection. Điều tuần 4 thêm vào: **cùng
 một lớp lỗ hổng phát hiện được bằng payload không hề mang tính khai thác.** Xem
-`reports/evidence/15-safe-payload-500.txt`.
+`reports/evidence/juice-shop-11-safe-payload-500.txt`.
 
 ---
 

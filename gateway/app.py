@@ -157,7 +157,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app.state.http.aclose()
 
 
-app = FastAPI(title="week4 api gateway", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="week4 api gateway", lifespan=lifespan)
 
 
 def _audit(request: Request, entry: dict[str, Any]) -> None:

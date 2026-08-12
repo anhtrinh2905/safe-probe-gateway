@@ -2,7 +2,7 @@
 $ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/ftp
 
 HTTP/1.1 404 Not Found
-date: Mon, 10 Aug 2026 05:41:27 GMT
+date: Wed, 12 Aug 2026 04:22:36 GMT
 server: uvicorn
 x-gateway-decision: blocked-route
 content-length: 65

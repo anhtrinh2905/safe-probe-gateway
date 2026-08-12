@@ -153,7 +153,7 @@ này là cố ý: hai thành phần không được chia sẻ code, nếu không
 
 ```bash
 bash scripts/up.sh        # sinh API key, dựng gateway + 2 target, tự kiểm tra topology
-bash scripts/smoke.sh     # 14 kiểm tra bằng curl -> reports/evidence/
+bash scripts/smoke.sh     # kiểm tra bằng curl -> reports/evidence/
                           # (lưu ý: bước cuối cố tình làm cạn rate bucket)
 sleep 70                  # chờ bucket đầy lại trước khi chạy suite
 PYTHONPATH=src python3 -m safe_probe.cli suite    # 72 request, ~4 phút

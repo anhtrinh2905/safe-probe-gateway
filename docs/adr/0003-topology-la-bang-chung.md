@@ -79,5 +79,7 @@ gateway tự viết ở đây.
 - `scripts/up.sh` kết thúc bằng việc *tự kiểm tra* điều này và **exit 1** nếu
   `localhost:3000` hoặc `localhost:8080` trả lời. Một regression ở đây làm hỏng
   luận điểm chính của repo, nên nó phải làm hỏng cả script.
-- `scripts/smoke.sh` ghi lại bằng chứng vào `reports/evidence/01-no-direct-access.txt`,
-  kèm output `docker inspect` cho thấy `NetworkSettings.Ports` rỗng.
+- `scripts/smoke.sh` ghi lại bằng chứng vào
+  `reports/evidence/juice-shop-01-no-direct-access.txt` và
+  `reports/evidence/lab-app-01-no-direct-access.txt`, kèm output `docker inspect`
+  cho thấy `NetworkSettings.Ports` rỗng.

@@ -1,0 +1,16 @@
+# POST /echo reflects the payload
+$ curl -i -X POST -H X-API-Key: ***REDACTED*** -H Content-Type: application/json -d {"msg":"hello"} http://localhost:8000/echo
+
+HTTP/1.1 200 OK
+date: Wed, 12 Aug 2026 04:22:37 GMT
+server: uvicorn
+date: Wed, 12 Aug 2026 04:22:37 GMT
+server: uvicorn
+content-type: application/json
+x-gateway-decision: allowed
+x-gateway-route: echo
+x-gateway-truncated: false
+content-length: 138
+
+{"received_bytes":15,"content_type":"application/json","parsed_json":{"msg":"hello"},"parse_error":null,"body_head":"{\"msg\":\"hello\"}"}
+expected 200, got 200

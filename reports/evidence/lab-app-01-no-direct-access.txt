@@ -1,0 +1,5 @@
+# lab-app publishes no ports (docker-compose.yml, network internal: true).
+$ curl --max-time 2 http://localhost:8080/health   # lab-app
+
+$ docker inspect -f '{{json .NetworkSettings.Ports}}' w4-lab-app
+/w4-lab-app {"8080/tcp":null}

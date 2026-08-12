@@ -2,7 +2,7 @@
 $ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/slow?ms=9000
 
 HTTP/1.1 504 Gateway Timeout
-date: Mon, 10 Aug 2026 05:41:27 GMT
+date: Wed, 12 Aug 2026 04:22:37 GMT
 server: uvicorn
 x-gateway-decision: upstream-timeout
 content-length: 70

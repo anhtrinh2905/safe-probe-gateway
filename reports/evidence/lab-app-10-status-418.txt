@@ -1,0 +1,16 @@
+# GET /status/418 echoes the status code
+$ curl -i -H X-API-Key: ***REDACTED*** http://localhost:8000/status/418
+
+HTTP/1.1 418 I'm a Teapot
+date: Wed, 12 Aug 2026 04:22:37 GMT
+server: uvicorn
+date: Wed, 12 Aug 2026 04:22:37 GMT
+server: uvicorn
+content-type: application/json
+x-gateway-decision: allowed
+x-gateway-route: status
+x-gateway-truncated: false
+content-length: 17
+
+{"requested":418}
+expected 418, got 418

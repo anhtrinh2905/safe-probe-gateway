@@ -30,21 +30,22 @@ Thư mục này trả lời **"chứng minh được cái gì"**. "Làm thế n�
 
 | Yêu cầu đề bài | Bằng chứng |
 | --- | --- |
-| API Gateway hoạt động | [`evidence/02-allowed-200.txt`](evidence/02-allowed-200.txt) |
-| **Request đều đi qua gateway** | [`evidence/01-no-direct-access.txt`](evidence/01-no-direct-access.txt) |
-| Endpoint bị cấm bị chặn | [`03`](evidence/03-blocked-ftp.txt) · [`04`](evidence/04-blocked-basket.txt) · [`05`](evidence/05-blocked-users.txt) |
-| API key riêng cho công cụ | [`06`](evidence/06-no-key-401.txt) · [`07`](evidence/07-wrong-key-401.txt) |
-| Chỉ endpoint trong allowlist | [`08`](evidence/08-method-405.txt) · [`09`](evidence/09-forbidden-403.txt) |
-| Giới hạn số request mỗi phút | [`13`](evidence/13-rate-limit-429.txt) |
-| Giới hạn thời gian chờ | [`11`](evidence/11-upstream-timeout-504.txt) |
-| Giới hạn kích thước response | [`12`](evidence/12-response-truncated.txt) |
-| Giới hạn kích thước request | [`10`](evidence/10-request-413.txt) |
+| API Gateway hoạt động | [`juice-shop-02-allowed-200.txt`](evidence/juice-shop-02-allowed-200.txt) |
+| **Request đều đi qua gateway** | [`juice-shop-01`](evidence/juice-shop-01-no-direct-access.txt) · [`lab-app-01`](evidence/lab-app-01-no-direct-access.txt) |
+| Endpoint bị cấm bị chặn | [`juice-shop-03`](evidence/juice-shop-03-blocked-ftp.txt) · [`04`](evidence/juice-shop-04-blocked-basket.txt) · [`05`](evidence/juice-shop-05-blocked-users.txt) |
+| API key riêng cho công cụ | [`juice-shop-06`](evidence/juice-shop-06-no-key-401.txt) · [`07`](evidence/juice-shop-07-wrong-key-401.txt) |
+| Chỉ endpoint trong allowlist | [`juice-shop-08`](evidence/juice-shop-08-method-405.txt) · [`09`](evidence/juice-shop-09-forbidden-403.txt) |
+| Giới hạn số request mỗi phút | [`juice-shop-10`](evidence/juice-shop-10-rate-limit-429.txt) |
+| Giới hạn thời gian chờ | [`lab-app-03`](evidence/lab-app-03-upstream-timeout-504.txt) |
+| Giới hạn kích thước response | [`lab-app-04`](evidence/lab-app-04-response-truncated.txt) |
+| Giới hạn kích thước request | [`lab-app-02`](evidence/lab-app-02-request-413.txt) |
+| lab-app: auth / allowlist / proxy | [`lab-app-05`](evidence/lab-app-05-no-key-401.txt) · [`06`](evidence/lab-app-06-wrong-key-401.txt) · [`07`](evidence/lab-app-07-blocked-health-404.txt) · [`08`](evidence/lab-app-08-blocked-items-404.txt) · [`09`](evidence/lab-app-09-echo-allowed-200.txt) · [`10`](evidence/lab-app-10-status-418.txt) · [`11`](evidence/lab-app-11-rate-limit-429.txt) |
 | Công cụ xử lý timeout & lỗi kết nối | `tests/test_client.py` |
 | Chỉ dùng payload an toàn | [`suite-results.md`](suite-results.md) · `tests/test_payloads.py` |
-| **Nhật ký không lưu API key** | [`14`](evidence/14-gateway-log-clean.txt) · `tests/test_redaction.py` |
-| Agent đề xuất & gửi request | [`17`](evidence/17-llm-plan-run.json) |
-| Lớp nào thực sự gánh việc | [`16`](evidence/16-no-client-limits-still-blocked.txt) |
-| Quan sát ngoài dự kiến | [`15`](evidence/15-safe-payload-500.txt) |
+| **Nhật ký không lưu API key** | [`gateway-01`](evidence/gateway-01-log-clean.txt) · `tests/test_redaction.py` |
+| Agent đề xuất & gửi request | [`gateway-02`](evidence/gateway-02-llm-plan-run.json) |
+| Lớp nào thực sự gánh việc | [`juice-shop-12`](evidence/juice-shop-12-no-client-limits-still-blocked.txt) |
+| Quan sát ngoài dự kiến | [`juice-shop-11`](evidence/juice-shop-11-safe-payload-500.txt) |
 
 ---
 
@@ -52,10 +53,10 @@ Thư mục này trả lời **"chứng minh được cái gì"**. "Làm thế n�
 
 ```bash
 bash scripts/up.sh        # dựng stack, tự kiểm tra topology
-bash scripts/smoke.sh     # -> evidence/01..14
+bash scripts/smoke.sh     # -> evidence/juice-shop-*, lab-app-*, gateway-01
 sleep 70                  # smoke làm cạn rate bucket ở bước cuối
 PYTHONPATH=src python3 -m safe_probe.cli suite    # -> suite-results.md
 ```
 
-`evidence/15`, `16`, `17` sinh bằng công cụ (`probe get/post`, `--no-client-limits`,
-`probe plan`) — lệnh cụ thể nằm ngay trong đầu mỗi file.
+`juice-shop-11`, `juice-shop-12`, `gateway-02` sinh bằng công cụ (`probe get/post`,
+`--no-client-limits`, `probe plan`) — lệnh cụ thể nằm ngay trong đầu mỗi file.

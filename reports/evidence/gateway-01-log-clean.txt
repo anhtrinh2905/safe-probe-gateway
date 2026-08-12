@@ -1,0 +1,5 @@
+# grep -rF '<PROBE_API_KEY>' data/gateway/  -> no match
+# lines in the gateway audit log:      437
+
+# a sample entry:
+{"ts": "2026-08-12T04:22:44+0000", "method": "GET", "path": "/status/200", "query": "", "client": "151.101.128.223", "status": 429, "decision": "rate-limited", "consumer": "agent-tool", "route": "status", "retry_after_s": 1}
