@@ -1,0 +1,15 @@
+# Mirrors .gitignore. The `ui` service builds with repo root as context (see
+# ui/Dockerfile), so this is what actually keeps .env and data/ out of what
+# gets uploaded to Railway -- not just out of git.
+.env
+data/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+.DS_Store
+.cache_ggshield
+.git/
+reports/evidence/

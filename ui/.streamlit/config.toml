@@ -1,0 +1,14 @@
+# Dark, technical palette -- picked for a dev/security tool. Matches the
+# semantic colors used for outcome charts in streamlit_app.py.
+[theme]
+base = "dark"
+primaryColor = "#22C55E"
+backgroundColor = "#0F172A"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#F8FAFC"
+font = "sans serif"
+
+[server]
+# XSRF protection requires CORS, so CORS is left at its default (on) -- setting
+# enableCORS=false here just produced a startup warning and was overridden anyway.
+enableXsrfProtection = true

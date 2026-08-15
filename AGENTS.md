@@ -24,6 +24,7 @@ qua allowlist của chính nó; nó không sửa được cấu hình của mộ
 | `targets/` | Ứng dụng thử nghiệm (lab-app) | — | Có |
 | `src/safe_probe/` | Python tool: client, limits, payload, audit, lớp LLM | — | Có |
 | `scripts/` | Entrypoint bash: up/down/smoke/verify | — | Có |
+| `ui/` | Streamlit demo -- consumer thứ ba của gateway, không phải tool bị kiểm thử | Người | Có |
 | `docs/` | **Quá trình**: phương pháp, ADR | Người | Có |
 | `data/` | **Output thô**: audit log của tool và của gateway | Máy | **Không** — regenerate |
 | `reports/` | **Kết quả**: báo cáo + bằng chứng + bảng suite | Người | Có |
@@ -75,6 +76,8 @@ nhận 429 — đúng như thiết kế, chỉ là không phải thứ đang mu�
   `ports:` vào target là phá hỏng toàn bộ luận điểm của repo.
 - **Không cho `src/safe_probe/` import `gateway/`.** Hai thành phần này không được
   chia sẻ code. Nếu tool import được policy, guardrail lại quay về trong tiến trình.
+  Ràng buộc này áp dụng cho mọi consumer, kể cả `ui/` -- nó được phép import
+  `safe_probe` (giống `cli.py`) nhưng cũng không được import `gateway/`.
 - **Không hard-code allowlist trong tool.** Tool lấy danh sách route từ
   `GET /_gateway/routes`. Nó có thể *đoán sai* — và bị gateway từ chối. Đó là điều
   đúng đắn: tool không phải nguồn sự thật về policy.

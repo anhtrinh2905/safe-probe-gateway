@@ -1,0 +1,70 @@
+# Biến thể của policy.yml cho bản demo public trên Railway. Đọc policy.yml
+# trước -- file này chỉ khác ở hai chỗ, không phải một chính sách mới.
+#
+# 1. `upstreams` chỉ còn `lab`. Bản demo public không chạy juice-shop (nặng,
+#    không cần thiết để minh hoạ closed-list / rate-limit / timeout /
+#    truncation), nên route nào trỏ vào juice-shop bị bỏ hẳn -- không để
+#    allowlist quảng cáo một route sẽ luôn 502 vì không có upstream.
+# 2. Hostname `lab-app.railway.internal` thay cho `lab-app` của Docker
+#    Compose: đây là DNS nội bộ Railway (`<service-name>.railway.internal`),
+#    dùng được vì service trên Railway được đặt đúng tên `lab-app`.
+#
+# Hệ quả chấp nhận, đã ghi trong docs/adr/0005-streamlit-demo-tren-railway.md:
+# bản demo này không có route admin-only nào, nên không minh hoạ được nhánh
+# 403 forbidden-group -- nhánh đó vẫn có bằng chứng trong reports/ từ bản
+# local đầy đủ.
+#
+# Chọn file này bằng biến môi trường GATEWAY_POLICY (gateway/app.py đã đọc
+# biến này từ trước), không sửa gì trong code.
+
+version: 1
+
+limits:
+  rate_per_minute: 30
+  upstream_timeout_s: 5
+  max_request_bytes: 65536      # 64 KB
+  max_response_bytes: 262144    # 256 KB
+
+consumers:
+  - name: agent-tool
+    key_env: PROBE_API_KEY
+    groups: [probe]
+
+  - name: admin-tool
+    key_env: PROBE_ADMIN_KEY
+    groups: [probe, admin]
+
+upstreams:
+  lab: http://lab-app.railway.internal:8080
+
+routes:
+  - id: echo
+    upstream: lab
+    methods: [POST]
+    path: /echo
+    groups: [probe]
+    note: reflects the payload back, so "it arrived intact" is observable
+
+  - id: slow
+    upstream: lab
+    methods: [GET]
+    path: /slow
+    groups: [probe]
+    note: ?ms= -- crossing upstream_timeout_s proves the 504
+
+  - id: big
+    upstream: lab
+    methods: [GET]
+    path: /big
+    groups: [probe]
+    note: ?kb= -- crossing max_response_bytes proves the truncation
+
+  - id: status
+    upstream: lab
+    methods: [GET]
+    path_prefix: /status/
+    groups: [probe]
+    note: /status/418 -- lets the tool's status mapping be tested end to end
+
+# Deliberately absent here (present in policy.yml for the local/full stack):
+# every juice-shop route, because this deployment has no juice-shop upstream.

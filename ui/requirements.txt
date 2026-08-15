@@ -1,0 +1,3 @@
+# Deps for the demo front end only. src/safe_probe/ stays stdlib-only --
+# see AGENTS.md -- this file is what keeps that true.
+streamlit>=1.38,<2

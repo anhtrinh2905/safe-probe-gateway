@@ -11,6 +11,16 @@ quyết định request nào đi tiếp.
 
 ---
 
+## Demo trực tuyến
+
+**[https://ui-production-75e7.up.railway.app](https://ui-production-75e7.up.railway.app)**
+
+Giao diện Streamlit để tự gõ goal cho agent, tự bấm chạy, và tự xem gateway
+quyết định — không cần clone repo hay chạy Docker. Bản deploy chỉ chạy với
+`lab-app` (không có juice-shop), xem lý do ở ADR 0005.
+
+---
+
 ## Bằng chứng ngắn nhất
 
 ```
@@ -91,8 +101,9 @@ nguyên vẹn.
 | `gateway/` | Gateway: `app.py` (generic) + `policy.yml` (**toàn bộ chính sách**) |
 | `targets/lab-app/` | Ứng dụng nhỏ để chứng minh các giới hạn |
 | `src/safe_probe/` | Python tool — stdlib-only |
+| `ui/` | Streamlit demo — consumer thứ ba của gateway |
 | `scripts/` | `up.sh` `down.sh` `smoke.sh` `verify.sh` |
-| `docs/` | **Quá trình**: phương pháp + 4 ADR |
+| `docs/` | **Quá trình**: phương pháp + 5 ADR |
 | `data/` | **Output máy**: audit log của tool và của gateway — xoá được |
 | `reports/` | **Kết quả**: báo cáo + bằng chứng + bảng suite |
 | `tests/` | 112 test |
@@ -143,6 +154,13 @@ PYTHONPATH=src python3 -m safe_probe.cli plan --goal "input validation" --rounds
 > `suite`, nếu không những request đầu sẽ nhận 429 — đúng như thiết kế, chỉ là
 > không phải thứ đang muốn đo.
 
+Giao diện Streamlit (sau khi `scripts/up.sh` đã chạy):
+
+```bash
+pip install -r ui/requirements.txt
+PYTHONPATH=src streamlit run ui/streamlit_app.py
+```
+
 ---
 
 ## Đọc theo thứ tự nào
@@ -161,3 +179,4 @@ PYTHONPATH=src python3 -m safe_probe.cli plan --goal "input validation" --rounds
 | [0002](docs/adr/0002-guardrail-hai-lop.md) | Guardrail hai lớp, và LLM chỉ được chọn hai định danh |
 | [0003](docs/adr/0003-topology-la-bang-chung.md) | Target không publish port: topology là bằng chứng |
 | [0004](docs/adr/0004-payload-an-toan-la-bat-bien.md) | "Payload an toàn" là bất biến có test |
+| [0005](docs/adr/0005-streamlit-demo-tren-railway.md) | Streamlit demo là consumer riêng, deploy lab-app-only lên Railway |
