@@ -53,7 +53,6 @@ BLUE = "#38BDF8"
 AMBER = "#F59E0B"
 RED = "#EF4444"
 GRAY = "#64748B"
-VIOLET = "#A78BFA"
 
 OUTCOME_COLORS: dict[str, str] = {
     "ok": GREEN,
@@ -95,19 +94,6 @@ code, .mono {{ font-family: 'Fira Code', monospace !important; }}
 [data-testid="stDataFrame"] {{
   border: 1px solid {BORDER}; border-radius: 10px; overflow: hidden;
 }}
-
-.flow-row {{ display:flex; gap:0.6rem; flex-wrap:wrap; align-items:stretch;
-             font-size:0.85rem; margin: 0.5rem 0 1.2rem 0; }}
-.flow-box {{ background:{SURFACE}; color:{FG}; border:1px solid {BORDER};
-             border-left:4px solid var(--accent); border-radius:8px;
-             padding:0.6rem 0.9rem; }}
-.flow-box b {{ color:{FG}; }}
-.flow-box .sub {{ color:{FG_MUTED}; }}
-.flow-agent   {{ --accent: {VIOLET}; }}
-.flow-tool    {{ --accent: {AMBER}; }}
-.flow-gateway {{ --accent: {GREEN}; }}
-.flow-target  {{ --accent: {BLUE}; }}
-.flow-arrow {{ align-self:center; color:{FG_MUTED}; }}
 
 .insight-card {{
   background:{SURFACE}; border:1px solid {BORDER}; border-radius:10px;
@@ -165,33 +151,6 @@ def render_sidebar_status(client: ProbeClient) -> None:
     )
 
 
-def render_header() -> None:
-    st.markdown(
-        """
-<div class="flow-row">
-  <div class="flow-box flow-agent">
-    <b>AGENT · LLM</b><br/><span class="sub">chỉ chọn route_id + payload_id<br/>
-    không viết URL · không thấy API key</span>
-  </div>
-  <div class="flow-arrow">→</div>
-  <div class="flow-box flow-tool">
-    <b>TOOL · safe_probe</b><br/><span class="sub">tự throttle, lịch sự nhưng tắt được</span>
-  </div>
-  <div class="flow-arrow">→</div>
-  <div class="flow-box flow-gateway">
-    <b>GATEWAY · policy.yml</b><br/><span class="sub">key-auth · allowlist · rate limit<br/>
-    <b>không tắt được</b></span>
-  </div>
-  <div class="flow-arrow">→</div>
-  <div class="flow-box flow-target">
-    <b>lab-app</b><br/><span class="sub">không publish port</span>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-
 # -- real-time flow diagram --------------------------------------------------
 #
 # Node order matches the CHECK ORDER DOCUMENTED IN gateway/app.py, not the
@@ -214,14 +173,19 @@ FLOW_DENY_AT: dict[str, tuple[str, str]] = {
     "rate-limited": ("RATE", "D_RATE"),
 }
 
-# outcomes that reached the app but the app itself did not answer cleanly --
-# still a full pass through the gateway, shown as amber rather than green.
+# outcomes where the app actually answered, just not cleanly -- a full pass
+# through the gateway, shown as amber rather than green.
 FLOW_WARN_OUTCOMES = {
     "upstream_client_error",
     "upstream_server_error",
+    "redirect",
+}
+
+# outcomes where the gateway proxied the request but gave up (or failed)
+# before the app ever answered -- the chain stops at PROXY, TARGET never runs.
+FLOW_NO_ANSWER_OUTCOMES = {
     "upstream_timeout",
     "upstream_error",
-    "redirect",
 }
 
 # outcomes that never reached the gateway at all -- client-side refusal,
@@ -320,6 +284,9 @@ def _flow_sequence(result: ProbeResult) -> tuple[list[str], str]:
         gate, deny = FLOW_DENY_AT[result.decision]
         idx = FLOW_CHAIN.index(gate)
         return [*FLOW_CHAIN[: idx + 1], deny], "flow-denied"
+    if result.outcome in FLOW_NO_ANSWER_OUTCOMES:
+        idx = FLOW_CHAIN.index("PROXY")
+        return FLOW_CHAIN[: idx + 1], "flow-warn"
     if result.outcome in FLOW_WARN_OUTCOMES:
         return list(FLOW_CHAIN), "flow-warn"
     return list(FLOW_CHAIN), "flow-passed"
@@ -811,41 +778,6 @@ def page_agent() -> None:
         render_history_tab()
 
 
-def page_overview() -> None:
-    render_page_header(
-        "🧭",
-        "Tổng quan",
-        "Một API Gateway đặt trước lab-app, và hai cách để tự tay chứng minh nó: "
-        "gửi request bằng tay, hoặc để một agent LLM đề xuất trong danh sách đóng.",
-    )
-    render_header()
-
-    st.write("")
-    st.subheader("Bắt đầu")
-    col_manual, col_agent = st.columns(2)
-    with col_manual, st.container(border=True):
-        st.markdown("#### 🛠️ Gửi request thủ công")
-        st.caption(
-            "Tự dựng method/path/query/body, xem gateway xử lý theo thời gian thực "
-            "qua một sơ đồ có hoạt ảnh."
-        )
-        st.page_link(PAGE_MANUAL, label="Mở trang này", icon="➡️")
-    with col_agent, st.container(border=True):
-        st.markdown("#### 🤖 Agent AI")
-        st.caption(
-            "LLM đề xuất route_id + payload_id trong hai danh sách đóng, bạn chỉ "
-            "bấm chạy và xem gateway quyết định."
-        )
-        st.page_link(PAGE_AGENT, label="Mở trang này", icon="➡️")
-
-    history = st.session_state.get("history", [])
-    if history:
-        st.write("")
-        st.subheader("Hoạt động gần đây trong phiên này")
-        df = _results_dataframe(history[-10:])
-        st.dataframe(df, width="stretch", hide_index=True)
-
-
 def _init_manual_state() -> None:
     """Keep the manual-request form's values alive across a mode switch.
 
@@ -862,11 +794,7 @@ def _init_manual_state() -> None:
     st.session_state.setdefault("manual_body", "")
 
 
-# Defined at module scope (not inside main()) so page_overview() can build
-# st.page_link()s to them -- st.Page objects, once created, are what
-# st.page_link and st.navigation both need to refer to the same page.
-PAGE_OVERVIEW = st.Page(page_overview, title="Tổng quan", icon="🧭", default=True)
-PAGE_MANUAL = st.Page(page_manual, title="Gửi request thủ công", icon="🛠️")
+PAGE_MANUAL = st.Page(page_manual, title="Gửi request thủ công", icon="🛠️", default=True)
 PAGE_AGENT = st.Page(page_agent, title="Agent AI", icon="🤖")
 
 
@@ -883,7 +811,7 @@ def main() -> None:
     render_sidebar_brand()
     render_sidebar_status(client)
 
-    pg = st.navigation([PAGE_OVERVIEW, PAGE_MANUAL, PAGE_AGENT])
+    pg = st.navigation([PAGE_MANUAL, PAGE_AGENT])
     pg.run()
 
 
