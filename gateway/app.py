@@ -202,6 +202,7 @@ async def routes(request: Request) -> Response:
     if consumer is None:
         return _deny(request, 401, "unauthorized", "missing or unknown API key")
     _audit(request, {"status": 200, "decision": "allowed", "consumer": consumer.name})
+    print(f"[debug-tmp] sample route: {policy.routes[0].public()}")
     return JSONResponse(
         {
             "consumer": consumer.name,
