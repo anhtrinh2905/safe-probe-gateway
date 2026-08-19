@@ -13,7 +13,17 @@ from __future__ import annotations
 
 import json
 
-from safe_probe.audit import REDACTED, AuditLog, redact_headers, redact_query, scrub
+from safe_probe.audit import (
+    REDACTED_API_KEY,
+    REDACTED_EMAIL,
+    REDACTED_PASSWORD,
+    REDACTED_PHONE,
+    REDACTED_TOKEN,
+    AuditLog,
+    redact_headers,
+    redact_query,
+    scrub,
+)
 
 from .conftest import SENTINEL_KEY
 
@@ -35,13 +45,42 @@ def test_sensitive_headers_go_by_name_not_by_value() -> None:
     headers = redact_headers(
         {"X-API-Key": "anything", "Cookie": "session=1", "Accept": "application/json"}, ()
     )
-    assert headers["X-API-Key"] == REDACTED
-    assert headers["Cookie"] == REDACTED
+    assert headers["X-API-Key"] == REDACTED_API_KEY
+    assert headers["Cookie"] == REDACTED_TOKEN
     assert headers["Accept"] == "application/json"
 
 
 def test_query_parameters_that_carry_credentials_are_blanked() -> None:
-    assert redact_query("q=hello&apikey=abc123&page=2", ()) == f"q=hello&apikey={REDACTED}&page=2"
+    assert (
+        redact_query("q=hello&apikey=abc123&page=2", ())
+        == f"q=hello&apikey={REDACTED_API_KEY}&page=2"
+    )
+
+
+# -- week 5: email, phone, password -- tagged by kind, not by a single marker
+
+
+def test_an_email_address_is_replaced_with_its_own_tag() -> None:
+    body = "contact: nguyen.van.a@example.com about the order"
+    cleaned = scrub(body, ())
+    assert "nguyen.van.a@example.com" not in cleaned
+    assert REDACTED_EMAIL in cleaned
+
+
+def test_a_vn_phone_number_is_replaced_with_its_own_tag() -> None:
+    for candidate in ("0912345678", "+84912345678", "091-234-5678"):
+        cleaned = scrub(f"gọi số {candidate} để xác nhận", ())
+        assert candidate not in cleaned
+        assert REDACTED_PHONE in cleaned
+
+
+def test_a_password_field_value_is_replaced_with_its_own_tag() -> None:
+    # Not a real credential -- see FAKE_TOKEN above for why this shape is used
+    # instead of something a secret scanner would flag as a plausible finding.
+    fake_value = "NOT" + "-A-REAL-PASSWORD-0123456789"
+    cleaned = scrub('{"password": "' + fake_value + '"}', ())
+    assert fake_value not in cleaned
+    assert REDACTED_PASSWORD in cleaned
 
 
 def test_the_scrubber_reaches_into_nested_structures(tmp_path) -> None:

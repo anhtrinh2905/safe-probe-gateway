@@ -34,24 +34,32 @@ import streamlit as st
 from safe_probe.audit import AuditLog
 from safe_probe.client import ProbeClient, ProbeResult
 from safe_probe.config import Config, ConfigError
+from safe_probe.llm import LLMClient, LLMError
+from safe_probe.payloads import UnsafePayload
+from safe_probe.payloads import get as get_payload
+from safe_probe.plan import Proposal, propose_round, send_probe
 
 MAX_RUNS_PER_SESSION = 5
-MAX_ROUNDS = 2
+MAX_ROUNDS = 6
 DEMO_LOG_PATH = Path("/tmp/streamlit-probe/requests.jsonl")
 
-# Dark, technical palette -- picked for a dev/security tool, not a marketing
-# page. Semantic families, not one color per exact string: green = success,
-# blue = a normal answer from the app, amber = the gateway made a policy call,
-# red = something actually failed, gray = never left the client.
-BG = "#0F172A"
-SURFACE = "#1E293B"
-BORDER = "#334155"
-FG = "#F8FAFC"
-FG_MUTED = "#94A3B8"
-GREEN = "#22C55E"
-BLUE = "#38BDF8"
-AMBER = "#F59E0B"
-RED = "#EF4444"
+# Light, professional palette ("Slate Professional") -- picked with the user
+# via docs/adr/... UX proposal: neutral slate/navy text on white, one blue
+# accent, semantic families kept from the previous dark palette (only the
+# hues moved to hold 4.5:1 on a light surface): green = success, blue = a
+# normal answer from the app, amber = the gateway made a policy call, red =
+# something actually failed, gray = never left the client.
+BG = "#F8FAFC"
+SURFACE = "#FFFFFF"
+BORDER = "#E2E8F0"
+FG = "#0F172A"
+FG_MUTED = "#64748B"
+ACCENT = "#0369A1"
+ACCENT_SOFT = "#E6F1F8"
+GREEN = "#16A34A"
+BLUE = "#2563EB"
+AMBER = "#D97706"
+RED = "#DC2626"
 GRAY = "#64748B"
 
 OUTCOME_COLORS: dict[str, str] = {
@@ -81,28 +89,156 @@ def inject_css() -> None:
     st.markdown(
         f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700\
-&family=Fira+Code:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700\
+&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-.stApp {{ font-family: 'Fira Sans', sans-serif; }}
-code, .mono {{ font-family: 'Fira Code', monospace !important; }}
+.stApp {{ font-family: 'IBM Plex Sans', sans-serif; }}
+code, .mono {{ font-family: 'IBM Plex Mono', monospace !important; }}
+
+/* Fit-one-screen pass: Streamlit's own default block-container padding
+   (96px top, 160px bottom) and 16px inter-element gap exist for a page
+   meant to scroll -- this app is a single dashboard view meant to fit one
+   viewport with no scrolling, so both get cut to a tight but still-legible
+   minimum. This is the single biggest lever in the whole page: those two
+   paddings alone were ~200px of dead space top and bottom. */
+[data-testid="stMainBlockContainer"] {{
+  /* padding-top can't go below Streamlit's own floating header+toolbar
+     (`[data-testid="stHeader"]`, 60px, `position:absolute` over the page) --
+     tried 1rem first and it worked visually but put our top bar's nav links
+     underneath that overlay's hit-area, silently eating their clicks. 4.5rem
+     clears it with a small margin; still well under the 6rem default. */
+  padding-top: 4.5rem !important; padding-bottom: 1.25rem !important;
+}}
+[data-testid="stVerticalBlock"] {{ gap: 0.5rem !important; }}
+
+/* Elevation scale -- one shadow language reused by every card-like surface
+   below (metrics, dataframes, insight banners, bordered containers) so the
+   page reads as one consistent set of "raised" blocks, not a random mix. */
+:root {{
+  --shadow-1: 0 1px 2px rgba(15,23,42,0.05), 0 1px 3px rgba(15,23,42,0.06);
+  --shadow-2: 0 2px 4px rgba(15,23,42,0.05), 0 6px 16px rgba(15,23,42,0.07);
+}}
 
 [data-testid="stMetric"] {{
   background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px;
-  padding: 0.9rem 1rem;
+  padding: 0.9rem 1rem; box-shadow: var(--shadow-1);
 }}
 [data-testid="stDataFrame"] {{
   border: 1px solid {BORDER}; border-radius: 10px; overflow: hidden;
+  box-shadow: var(--shadow-1);
+}}
+
+/* Every `st.container(border=True)` card in the app (approval cards, manual
+   request/result panels, page + section headers below) gets the same frame
+   + shadow treatment from this one rule. */
+[data-testid="stVerticalBlockBorderWrapper"] {{
+  border-radius: 12px !important; box-shadow: var(--shadow-1);
 }}
 
 .insight-card {{
   background:{SURFACE}; border:1px solid {BORDER}; border-radius:10px;
   padding:0.7rem 1rem; margin: 0.4rem 0 1rem 0; color:{FG};
+  box-shadow: var(--shadow-1);
+}}
+
+/* Top bar nav pills -- `st.page_link`, given an active-page background
+   instead of plain text. Streamlit gives the active link's anchor
+   `aria-current="page"`. */
+[data-testid="stPageLink"] {{
+  border-radius: 8px; margin: 0.1rem 0;
+}}
+[data-testid="stPageLink"] a[aria-current="page"] {{
+  background: {ACCENT_SOFT} !important;
+}}
+[data-testid="stPageLink"] a[aria-current="page"] span {{
+  color: {ACCENT} !important; font-weight: 600;
+}}
+
+/* Top bar brand + status strip (render_top_bar / render_status_strip) --
+   replaces the old sidebar brand block and status column. */
+.topbar-brand {{
+  font-weight:700; font-size:1.05rem; color:{FG}; white-space:nowrap;
+  padding-top:0.3rem;
+}}
+.topbar-status {{
+  display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+  gap:0.9rem; padding-top:0.4rem;
+}}
+.status-stat {{
+  font-size:0.72rem; color:{FG_MUTED}; white-space:nowrap;
+}}
+.status-stat b {{
+  color:{FG}; font-family:'IBM Plex Mono', monospace; font-weight:600; margin-left:0.2rem;
+}}
+.status-badge {{
+  display:inline-flex; align-items:center; gap:0.4rem;
+  font-size:0.74rem; font-weight:600; padding:0.25rem 0.6rem; border-radius:999px;
+}}
+.status-badge::before {{
+  content:""; width:6px; height:6px; border-radius:50%; background:currentColor;
+}}
+.status-badge-ok {{ color:{GREEN}; background:#EAF7EE; }}
+
+/* Card header -- a title bar with its own bottom border, used at the top of
+   `st.container(border=True)` blocks so a card reads as header+body instead
+   of a heading floating inside a plain box. */
+.card-hd {{
+  font-size:0.82rem; font-weight:600; color:{FG};
+  padding-bottom:0.4rem; margin-bottom:0.45rem; border-bottom:1px solid {BORDER};
+}}
+
+/* Page header (render_page_header) -- one boxed, shadowed banner per page,
+   with an accent rule on the left so it doesn't read as just another card.
+   No negative margin here: `st.container(border=True)` already gives this
+   div ~15px of its own padding, and pulling the div past that with a
+   negative margin (as an earlier version did) let the border-left poke out
+   past the card's own rounded bottom edge -- Streamlit's internal spacing
+   margins on the elements between this div and the card border are not
+   ours to budget against. */
+.page-header {{
+  border-left: 4px solid {ACCENT};
+  padding: 0.05rem 0.3rem 0.05rem 0.8rem;
+}}
+.page-header-title {{
+  font-size:1.2rem; font-weight:700; color:{FG}; line-height:1.25;
+}}
+.page-header-sub {{
+  font-size:0.78rem; color:{FG_MUTED}; margin-top:0.1rem;
+}}
+
+/* Section header (render_section_header) -- the boxed, shadowed title bar
+   used for a tab's own heading (Allowlist, Lịch sử phiên, ...), one size
+   down from `.page-header` since it never carries the page's own icon. */
+.section-hd-title {{
+  font-size:1.08rem; font-weight:700; color:{FG};
+}}
+.section-hd-sub {{
+  font-size:0.85rem; color:{FG_MUTED}; margin-top:0.3rem;
+}}
+
+/* Quick-fill preset buttons (page_manual) -- smaller label text than a
+   regular button, plus a one-line note underneath (e.g. "(timeout)") that
+   must never wrap: a wrapped note pushed each button's row height around and
+   made the five presets uneven. */
+.st-key-preset-row button p {{
+  font-size:0.78rem;
+}}
+.preset-note {{
+  font-size:0.68rem; color:{FG_MUTED}; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  margin-top:0.15rem;
 }}
 </style>
 """,
         unsafe_allow_html=True,
     )
+
+
+def render_card_header(title: str) -> None:
+    """The `.card-hd` title bar -- see `inject_css`. One call site per card,
+    swapped in wherever a card used to open with a bare `#### heading`.
+    """
+    st.markdown(f'<div class="card-hd">{title}</div>', unsafe_allow_html=True)
 
 
 @st.cache_resource(show_spinner=False)
@@ -112,42 +248,86 @@ def get_client() -> ProbeClient:
 
 
 def render_page_header(icon: str, title: str, subtitle: str = "") -> None:
-    """One header shape, reused by every page -- same size, same spacing.
+    """One header shape, reused by every page -- same boxed, shadowed banner,
+    same size, same spacing.
 
     Three pages that each pick their own title/caption/divider combination
-    drift apart within a week; one function can't.
+    drift apart within a week; one function can't. Framed in
+    `st.container(border=True)` (see `.page-header` in `inject_css`) instead
+    of a bare `st.title` + `st.divider()` so the page's own heading reads as
+    a card, the same visual language as every other block on the page.
     """
-    st.title(f"{icon} {title}")
-    if subtitle:
-        st.caption(subtitle)
-    st.divider()
+    with st.container(border=True):
+        sub_html = f'<div class="page-header-sub">{subtitle}</div>' if subtitle else ""
+        st.markdown(
+            f'<div class="page-header"><div class="page-header-title">{icon} {title}</div>'
+            f"{sub_html}</div>",
+            unsafe_allow_html=True,
+        )
 
 
-def render_sidebar_brand() -> None:
-    st.sidebar.markdown("## 🧭 Gateway Demo")
-    st.sidebar.caption("Agent an toàn đặt sau một API Gateway thật, không phải mô phỏng.")
+def render_section_header(title: str, subtitle: str = "") -> None:
+    """Boxed, shadowed title bar for a tab's own heading (e.g. 'Allowlist
+    dang publish', 'Lich su phien') -- `.section-hd-*` in `inject_css`, one
+    size down from `render_page_header` since these never carry a page icon.
+    """
+    with st.container(border=True):
+        sub_html = f'<div class="section-hd-sub">{subtitle}</div>' if subtitle else ""
+        st.markdown(
+            f'<div class="section-hd-title">{title}</div>{sub_html}',
+            unsafe_allow_html=True,
+        )
 
 
-def render_sidebar_status(client: ProbeClient) -> None:
-    """Gateway health, always visible, regardless of which page is open.
+def render_top_bar(pages: list[st.Page], client: ProbeClient) -> None:
+    """Brand + page nav + system status, one row above every page.
+
+    Replaces the sidebar entirely: brand/nav/status used to live in
+    `st.sidebar`, but Streamlit only reserves the sidebar rail when something
+    is actually added to it, so moving all three up here is what makes the
+    sidebar (and its collapse arrow) disappear rather than just sit empty.
+    Framed in `st.container(border=True)` so the bar itself reads as one
+    boxed, shadowed strip instead of a row of widgets floating on the page.
+    """
+    with st.container(border=True):
+        brand_col, nav_col, status_col = st.columns(
+            [1.3, 2.0, 2.7], vertical_alignment="center"
+        )
+        with brand_col:
+            st.markdown('<div class="topbar-brand">🧭 Gateway Demo</div>', unsafe_allow_html=True)
+        with nav_col:
+            link_cols = st.columns(len(pages))
+            for col, page in zip(link_cols, pages, strict=True):
+                with col:
+                    st.page_link(page)
+        with status_col:
+            render_status_strip(client)
+
+
+def render_status_strip(client: ProbeClient) -> None:
+    """Gateway health, condensed into one right-aligned line in the top bar.
 
     Reads `client.routes()`, which `ProbeClient` caches after the first call
     -- so this costs one real request per browser session, not one per page
     switch or rerun.
     """
-    st.sidebar.divider()
-    st.sidebar.markdown("**Trạng thái hệ thống**")
     try:
         published = client.routes()
     except RuntimeError as exc:
-        st.sidebar.error(f"Gateway không phản hồi: {exc}")
+        st.error(f"Gateway không phản hồi: {exc}")
         return
     limits = published["limits"]
-    st.sidebar.success(f"Gateway OK -- {published['consumer']}")
-    st.sidebar.caption(
-        f"{limits['rate_per_minute']}/phút · timeout {limits['upstream_timeout_s']}s · "
-        f"req ≤{limits['max_request_bytes'] // 1024}KB · "
-        f"resp ≤{limits['max_response_bytes'] // 1024}KB"
+    stats = [
+        ("Rate", f"{limits['rate_per_minute']}/phút"),
+        ("Timeout", f"{limits['upstream_timeout_s']}s"),
+        ("Req", f"≤{limits['max_request_bytes'] // 1024}KB"),
+        ("Resp", f"≤{limits['max_response_bytes'] // 1024}KB"),
+    ]
+    stats_html = "".join(f'<span class="status-stat">{k} <b>{v}</b></span>' for k, v in stats)
+    st.markdown(
+        f'<div class="topbar-status">{stats_html}'
+        '<span class="status-badge status-badge-ok">Gateway OK</span></div>',
+        unsafe_allow_html=True,
     )
 
 
@@ -197,27 +377,9 @@ FLOW_CLIENT_ONLY_OUTCOMES = {
     "refused_by_client",
 }
 
-NODE_LABELS: dict[str, str] = {
-    "REQ": "Request tới gateway",
-    "SIZE": "Kiểm tra kích thước (≤ 64KB)",
-    "AUTH": "Kiểm tra API key",
-    "ROUTE": "Kiểm tra path có trong allowlist",
-    "METHOD": "Kiểm tra method đúng route",
-    "ACL": "Kiểm tra nhóm ACL",
-    "RATE": "Kiểm tra rate limit",
-    "PROXY": "Proxy sang ứng dụng phía sau",
-    "TARGET": "Ứng dụng phía sau trả lời",
-    "D_SIZE": "Từ chối -- 413 request quá lớn",
-    "D_AUTH": "Từ chối -- 401 sai/thiếu API key",
-    "D_ROUTE": "Từ chối -- 404 path ngoài allowlist",
-    "D_METHOD": "Từ chối -- 405 sai method cho route",
-    "D_ACL": "Từ chối -- 403 thiếu quyền ACL",
-    "D_RATE": "Từ chối -- 429 vượt rate limit",
-}
-
 # Labels used inside the mermaid source itself -- kept ASCII (no diacritics)
 # because mermaid's own label parser is the thing rendering them, not
-# Streamlit; NODE_LABELS above (with diacritics) is for the caption text.
+# Streamlit.
 MERMAID_NODE_LABELS: dict[str, str] = {
     "REQ": "Request toi gateway<br/>+ API key",
     "SIZE": "Body <= 64KB?",
@@ -237,39 +399,73 @@ MERMAID_NODE_LABELS: dict[str, str] = {
 }
 
 
-def _build_flow_mermaid(sequence: list[str]) -> str:
-    """A single column of the boxes this one request actually walked through.
+FLOW_ROW_SPLIT_THRESHOLD = 5
+
+
+def _build_flow_mermaid(sequence: list[str]) -> list[str]:
+    """One or two independent left-to-right mermaid sources -- one per lane
+    -- for the boxes this request actually walked through.
 
     Unlike a fixed diagram with every check drawn as a branching decision,
     this only ever draws the gates the request passed (green, later) plus --
     only when it was actually rejected at one of them -- the one HTTP-error
     box for that gate. Nothing unreached is shown.
+
+    Horizontal (`flowchart LR`) reads in the same direction as the request
+    actually moves. A full pass has 9 nodes -- one lane that long would force
+    the SVG so wide it would shrink to unreadable inside the iframe, so past
+    `FLOW_ROW_SPLIT_THRESHOLD` the chain wraps onto a second lane.
+
+    Two separate diagrams, not one `flowchart TB` containing two `direction
+    LR` subgraphs: tried that first, and it renders fully vertical regardless
+    of the inner direction, because mermaid/dagre silently drops a
+    subgraph's own direction whenever an edge crosses between two subgraphs
+    -- which the lane-to-lane connector always does. Filed as a known
+    limitation upstream, not something CSS or config can override, so this
+    sidesteps it by never asking mermaid to lay out both lanes as one graph;
+    `render_flow_diagram` stacks the two independent diagrams and draws the
+    connector itself.
     """
-    lines = ["flowchart TB"]
-    for node in sequence:
-        label = MERMAID_NODE_LABELS.get(node, node)
-        lines.append(f'  {node}["{label}"]')
-    for a, b in zip(sequence, sequence[1:]):
-        lines.append(f"  {a} --> {b}")
 
-    lines.append("")
-    lines.append("  classDef entry fill:#1E293B,stroke:#94A3B8,color:#F8FAFC,stroke-width:1.5px;")
-    lines.append("  classDef check fill:#241B3D,stroke:#A78BFA,color:#F8FAFC,stroke-width:1.5px;")
-    lines.append("  classDef deny fill:#3F1620,stroke:#EF4444,color:#FCA5A5,stroke-width:1.5px;")
-    lines.append("  classDef transit fill:#0C2A38,stroke:#38BDF8,color:#F8FAFC,stroke-width:1.5px;")
-    lines.append("  classDef target fill:#0F2E1E,stroke:#22C55E,color:#BBF7D0,stroke-width:1.5px;")
+    def node_line(node: str) -> str:
+        return f'  {node}["{MERMAID_NODE_LABELS.get(node, node)}"]'
 
-    def class_line(cls: str, candidates: list[str]) -> None:
-        present = [n for n in candidates if n in sequence]
-        if present:
-            lines.append(f"  class {','.join(present)} {cls};")
+    def edge_lines(nodes: list[str]) -> list[str]:
+        # strict=False: pairwise-by-design, the two operands never have equal
+        # length (the second is the first shifted by one).
+        return [f"  {a} --> {b}" for a, b in zip(nodes, nodes[1:], strict=False)]
 
-    class_line("entry", ["REQ"])
-    class_line("check", ["SIZE", "AUTH", "ROUTE", "METHOD", "ACL", "RATE"])
-    class_line("deny", ["D_SIZE", "D_AUTH", "D_ROUTE", "D_METHOD", "D_ACL", "D_RATE"])
-    class_line("transit", ["PROXY"])
-    class_line("target", ["TARGET"])
-    return "\n".join(lines)
+    def class_lines(nodes: list[str]) -> list[str]:
+        lines = [
+            "  classDef entry fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:1.5px;",
+            "  classDef check fill:#F5F3FF,stroke:#7C3AED,color:#0F172A,stroke-width:1.5px;",
+            "  classDef deny fill:#FEF2F2,stroke:#DC2626,color:#991B1B,stroke-width:1.5px;",
+            "  classDef transit fill:#EFF6FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px;",
+            "  classDef target fill:#F0FDF4,stroke:#16A34A,color:#14532D,stroke-width:1.5px;",
+        ]
+
+        def class_line(cls: str, candidates: list[str]) -> None:
+            present = [n for n in candidates if n in nodes]
+            if present:
+                lines.append(f"  class {','.join(present)} {cls};")
+
+        class_line("entry", ["REQ"])
+        class_line("check", ["SIZE", "AUTH", "ROUTE", "METHOD", "ACL", "RATE"])
+        class_line("deny", ["D_SIZE", "D_AUTH", "D_ROUTE", "D_METHOD", "D_ACL", "D_RATE"])
+        class_line("transit", ["PROXY"])
+        class_line("target", ["TARGET"])
+        return lines
+
+    def lane(nodes: list[str]) -> str:
+        lines = ["flowchart LR", *(node_line(n) for n in nodes), *edge_lines(nodes)]
+        lines.append("")
+        lines += class_lines(nodes)
+        return "\n".join(lines)
+
+    if len(sequence) <= FLOW_ROW_SPLIT_THRESHOLD:
+        return [lane(sequence)]
+    split = -(-len(sequence) // 2)  # ceil -- lane 1 gets the extra node on an odd split
+    return [lane(sequence[:split]), lane(sequence[split:])]
 
 
 def _flow_sequence(result: ProbeResult) -> tuple[list[str], str]:
@@ -295,23 +491,31 @@ def _flow_sequence(result: ProbeResult) -> tuple[list[str], str]:
 _FLOW_HTML_TEMPLATE = """
 <div id="flow-wrap" data-attempt="__ATTEMPT__">
 <style>
-  html, body {
-    margin:0; background:__BG__;
-    display:flex; justify-content:center;
-  }
+  html, body { margin:0; background:__BG__; }
+  /* `body` deliberately stays block (not flex): the horizontal lanes below
+     need `#flow-wrap` to actually get the viewport's full width so a wide
+     lane can lay out at its natural size before shrinking -- a flex `body`
+     with no explicit width on its child sizes that child to shrink-wrap its
+     content instead, which quietly squeezed every lane down to a fraction
+     of the available space (only invisible before this diagram went
+     horizontal, when every lane was narrow enough not to show it). Centering
+     `#flow-wrap` with `margin:0 auto` on an ordinary block avoids that. */
   #flow-wrap {
     background:__BG__; padding:6px 6px 18px; border-radius:10px;
-    display:flex; flex-direction:column; align-items:center;
-    width:100%; max-width:640px;
+    margin:0 auto; display:flex; flex-direction:column; align-items:center;
+    width:100%; max-width:720px;
   }
   #flow-wrap .mermaid { display:flex; justify-content:center; }
-  #flow-wrap .mermaid svg { max-width:100%; height:auto; }
+  #flow-wrap .mermaid svg { max-width:100%; height:auto; font-family:'IBM Plex Sans',sans-serif; }
+  /* The glyph between two stacked lanes (see _build_flow_mermaid /
+     render_flow_diagram) -- plain CSS, not mermaid, draws the row wrap. */
+  #flow-wrap .flow-row-connector { color:__FG_MUTED__; margin:-2px 0; }
   #flow-wrap .node rect, #flow-wrap .node polygon {
     transition: stroke .25s ease, filter .25s ease; stroke-width:1.5px;
   }
   #flow-wrap .flow-active rect, #flow-wrap .flow-active polygon {
-    stroke:#FFFFFF !important; stroke-width:3px !important;
-    filter: drop-shadow(0 0 8px rgba(255,255,255,.85));
+    stroke:__ACCENT__ !important; stroke-width:3px !important;
+    filter: drop-shadow(0 0 8px rgba(3,105,161,.45));
   }
   #flow-wrap .flow-passed rect, #flow-wrap .flow-passed polygon {
     stroke:__GREEN__ !important; stroke-width:2.5px !important;
@@ -326,13 +530,25 @@ _FLOW_HTML_TEMPLATE = """
     #flow-wrap .node rect, #flow-wrap .node polygon { transition: none !important; }
   }
 </style>
-<pre class="mermaid">
-__DIAGRAM__
-</pre>
+__DIAGRAM_BLOCKS__
 </div>
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-  mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+  mermaid.initialize({
+    startOnLoad: false, theme: "default", securityLevel: "loose",
+    themeVariables: { fontSize: "13px" },
+    // useMaxWidth:false -- mermaid's default emits `width="100%"` on the
+    // <svg> instead of its natural pixel width. A percentage-width replaced
+    // element inside an auto-width flex parent (`.mermaid`, centered by
+    // `align-items:center` so each lane keeps its own natural size) has no
+    // definite size to contribute to that parent's fit-content sizing, so
+    // the browser fell back to the classic 300x150 UA default for replaced
+    // elements -- every lane rendered at a fixed ~300px regardless of how
+    // many nodes it held. A real pixel width is a definite intrinsic size;
+    // `max-width:100%` on the CSS side (see #flow-wrap .mermaid svg) still
+    // shrinks it if the iframe itself is narrower than that.
+    flowchart: { curve: "basis", nodeSpacing: 24, rankSpacing: 40, padding: 8, useMaxWidth: false },
+  });
   const seq = __SEQ__;
   const finalState = "__FINAL__";
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -367,6 +583,28 @@ __DIAGRAM__
 """
 
 
+# A down-chevron between two stacked lanes -- `currentColor` picks up
+# `.flow-row-connector`'s `color` so it stays a single source of truth with
+# the rest of the palette instead of a hard-coded stroke here.
+_FLOW_ROW_CONNECTOR = (
+    '<div class="flow-row-connector" aria-hidden="true">'
+    '<svg width="16" height="22" viewBox="0 0 16 22">'
+    '<path d="M8 1 V15 M2 10 L8 17 L14 10" fill="none" stroke="currentColor" '
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
+)
+
+
+def _diagram_blocks_html(diagrams: list[str]) -> str:
+    """One `<pre class="mermaid">` per lane, joined by the row connector.
+
+    `diagrams` has one entry for a short sequence, two for a wrapped one
+    (see `_build_flow_mermaid`) -- `join` naturally emits no connector for a
+    single-element list.
+    """
+    blocks = [f'<pre class="mermaid">\n{d}\n</pre>' for d in diagrams]
+    return _FLOW_ROW_CONNECTOR.join(blocks)
+
+
 def render_flow_diagram(sequence: list[str], final_state: str, attempt: int) -> None:
     """Render the diagram and replay its animation from scratch.
 
@@ -376,17 +614,25 @@ def render_flow_diagram(sequence: list[str], final_state: str, attempt: int) -> 
     would silently not replay on the second click. Changing one attribute
     forces a real reload every time, independent of what actually happened.
     """
+    diagrams = _build_flow_mermaid(sequence)
     html = (
         _FLOW_HTML_TEMPLATE.replace("__BG__", BG)
+        .replace("__FG_MUTED__", FG_MUTED)
+        .replace("__ACCENT__", ACCENT)
         .replace("__GREEN__", GREEN)
         .replace("__AMBER__", AMBER)
         .replace("__RED__", RED)
-        .replace("__DIAGRAM__", _build_flow_mermaid(sequence))
+        .replace("__DIAGRAM_BLOCKS__", _diagram_blocks_html(diagrams))
         .replace("__SEQ__", json.dumps(sequence))
         .replace("__FINAL__", final_state)
         .replace("__ATTEMPT__", str(attempt))
     )
-    st.iframe(html, height=760)
+    # Measured directly against the rendered #flow-wrap (one lane ~104px,
+    # two lanes ~186px including the connector) plus a small buffer -- not a
+    # guess: an earlier, much taller guess (220/380) was most of why this
+    # page needed a second screen's worth of scrolling to view in full.
+    height = 130 if len(diagrams) == 1 else 210
+    st.iframe(html, height=height)
 
 
 def _outcome_scale(present: list[str]) -> alt.Scale:
@@ -473,10 +719,10 @@ def render_latency_chart(df: pd.DataFrame) -> None:
 
 
 def render_allowlist_tab(client: ProbeClient) -> None:
-    st.subheader("Allowlist đang publish")
-    st.caption(
+    render_section_header(
+        "Allowlist đang publish",
         "Danh sách này do gateway tự công bố qua `GET /_gateway/routes` -- "
-        "giao diện này không mang theo bản sao nào của policy."
+        "giao diện này không mang theo bản sao nào của policy.",
     )
     try:
         published = client.routes()
@@ -525,11 +771,86 @@ def _run_gate_ok() -> bool:
     return False
 
 
+def _route_endpoint(published: dict, route_id: str) -> tuple[str, str]:
+    """`(method, path)` for one route id, the same way `plan.py::send_probe` reads it."""
+    route = next(r for r in published["routes"] if r["id"] == route_id)
+    return route["methods"][0], route["path"] or (route["path_prefix"] + "*")
+
+
+def render_approval_card(published: dict, proposal: Proposal, round_no: int, rounds: int) -> str:
+    """Endpoint + payload + purpose, the three things week 5 requires shown
+
+    before a POST or payload-carrying request goes out -- an agent proposal
+    always carries a `payload_id` (see docs/adr/0006), so every one of these
+    goes through this gate, not just the POST ones.
+
+    Returns the decision: "approve", "reject", or "" (no button clicked yet).
+    """
+    method, path = _route_endpoint(published, proposal.route_id)
+    payload = get_payload(proposal.payload_id)
+    with st.container(border=True):
+        render_card_header(f"Vòng {round_no}/{rounds} -- chờ phê duyệt")
+        st.markdown(f"**Endpoint:** `{method} {path}`")
+        st.markdown(f"**Payload:** `{payload.id}` ({payload.kind}) -- {payload.asks}")
+        shown = repr(payload.value)
+        st.code(shown if len(shown) <= 200 else shown[:200] + "...", language=None)
+        st.markdown(f"**Mục đích (agent tự giải thích):** {proposal.why or '(không có)'}")
+        col_a, col_r = st.columns(2)
+        if col_a.button("✅ Approve & gửi", key=f"approve_{round_no}_{proposal.route_id}"):
+            return "approve"
+        if col_r.button("❌ Reject", key=f"reject_{round_no}_{proposal.route_id}"):
+            return "reject"
+    return ""
+
+
+def _advance_agent_round(client: ProbeClient) -> None:
+    """Once every proposal in the current round has been approved or rejected,
+
+    fold this round's approved-and-sent results into a transcript (exactly as
+    `plan.py::run_plan` did in one pass) and ask for the next round, or stop.
+    """
+    state = st.session_state["agent_run"]
+    lines = [
+        f"- {d['proposal'].route_id} + {d['proposal'].payload_id} -> "
+        f"HTTP {d['result'].status} ({d['result'].outcome}, "
+        f"answered by {d['result'].answered_by}); "
+        f"body: {d['result'].body_excerpt[:200]!r}"
+        for d in state["decisions"]
+        if d["round"] == state["round_no"] and d["decision"] == "approved"
+    ]
+    transcript = "\n".join(lines)
+    if state["round_no"] >= state["rounds"]:
+        state["finished"] = True
+        return
+    with st.spinner("Agent đang đề xuất vòng tiếp theo..."):
+        try:
+            proposals, reasoning, published = propose_round(
+                client, state["goal"], state["round_no"] + 1, state["rounds"], transcript,
+                state["llm"],
+            )
+        except LLMError as exc:
+            # Stored on `state`, not a bare `st.error(...)` here: this branch
+            # runs inside a click handler, so a transient message would only
+            # ever appear on the one rerun right after it -- easy to miss,
+            # and indistinguishable from "the agent stopped after N rounds on
+            # purpose". `render_agent_tab` re-shows this on every rerun until
+            # the run is cleared, so a stall due to a real LLM/network error
+            # can't look identical to a completed run.
+            state["error"] = str(exc)
+            state["finished"] = True
+            return
+    state["round_no"] += 1
+    state["published"] = published
+    state["pending"] = proposals
+    state["reasoning"].append(reasoning)
+
+
 def render_agent_tab(client: ProbeClient) -> None:
     st.caption(
         "`route_id` phải nằm trong allowlist ở tab 'Allowlist', `payload_id` phải nằm "
         "trong catalogue payload an toàn -- không viết URL, không đặt header, không "
-        "bao giờ thấy API key."
+        "bao giờ thấy API key. Mỗi đề xuất phải được bạn Approve hoặc Reject trước khi "
+        "tool thực sự gửi -- xem AGENTS.md / docs/adr/0006."
     )
 
     if not _run_gate_ok():
@@ -553,31 +874,114 @@ def render_agent_tab(client: ProbeClient) -> None:
     remaining = MAX_RUNS_PER_SESSION - st.session_state["run_count"]
     st.caption(f"Còn {max(remaining, 0)}/{MAX_RUNS_PER_SESSION} lượt chạy trong phiên này.")
 
-    if st.button("Chạy agent", disabled=remaining <= 0):
-        from safe_probe.llm import LLMError
-        from safe_probe.plan import run_plan
+    state = st.session_state.get("agent_run")
+    run_in_progress = state is not None and not state["finished"]
 
+    if run_in_progress:
+        st.info(
+            f"Đang ở vòng {state['round_no']}/{state['rounds']} -- Approve hoặc Reject đề xuất "
+            "bên dưới để tiếp tục. Bấm 'Chạy agent' lúc này sẽ bắt đầu lại từ vòng 1, không phải "
+            "tiếp tục vòng hiện tại."
+        )
+        if st.button("↺ Hủy lượt đang chạy"):
+            st.session_state.pop("agent_run", None)
+            st.rerun()
+
+    if st.button("Chạy agent", disabled=remaining <= 0 or run_in_progress):
         st.session_state["run_count"] += 1
-        with st.spinner("Agent đang đề xuất, tool đang gửi, gateway đang quyết định..."):
+        with st.spinner("Agent đang đề xuất probe đầu tiên..."):
             try:
-                run = run_plan(client, goal=goal, rounds=rounds)
+                llm = LLMClient.from_env()
+                proposals, reasoning, published = propose_round(client, goal, 1, rounds, "", llm)
             except LLMError as exc:
                 st.error(f"Lớp LLM không dùng được: {exc}")
-                run = None
-        if run is not None:
-            st.session_state["last_run"] = run
-            st.session_state["history"].extend(run.results)
+                st.session_state.pop("agent_run", None)
+            else:
+                st.session_state["agent_run"] = {
+                    "goal": goal,
+                    "rounds": rounds,
+                    "round_no": 1,
+                    "llm": llm,
+                    "published": published,
+                    "pending": proposals,
+                    "reasoning": [reasoning],
+                    "decisions": [],
+                    "finished": False,
+                    "error": None,
+                }
+        st.rerun()
 
-    run = st.session_state.get("last_run")
-    if run is None:
+    state = st.session_state.get("agent_run")
+    if state is None:
         return
 
-    for i, reasoning in enumerate(run.reasoning, start=1):
+    for i, reasoning in enumerate(state["reasoning"], start=1):
         st.markdown(f"**Vòng {i} -- lý do model đưa ra:** {reasoning}")
 
-    df = _results_dataframe(run.results)
+    if state["finished"] and state.get("error"):
+        st.error(
+            f"Dừng ở vòng {state['round_no']}/{state['rounds']} -- không đề xuất được vòng tiếp "
+            f"theo: {state['error']}"
+        )
+
+    if state["pending"] and not state["finished"]:
+        proposal = state["pending"][0]
+        decision = render_approval_card(
+            state["published"], proposal, state["round_no"], state["rounds"]
+        )
+        if decision == "approve":
+            try:
+                result = send_probe(client, state["published"], proposal)
+            except (KeyError, UnsafePayload, StopIteration) as exc:
+                # Belt and braces: `_validate` already refused unknown ids
+                # before this proposal could exist. If one gets this far it
+                # is a bug, and it is recorded rather than silently dropped.
+                state["decisions"].append(
+                    {
+                        "round": state["round_no"],
+                        "proposal": proposal,
+                        "decision": "send_failed",
+                        "result": None,
+                        "error": str(exc),
+                    }
+                )
+            else:
+                state["decisions"].append(
+                    {
+                        "round": state["round_no"],
+                        "proposal": proposal,
+                        "decision": "approved",
+                        "result": result,
+                    }
+                )
+                st.session_state["history"].append((proposal, result))
+            state["pending"].pop(0)
+            if not state["pending"]:
+                _advance_agent_round(client)
+            st.rerun()
+        elif decision == "reject":
+            state["decisions"].append(
+                {
+                    "round": state["round_no"],
+                    "proposal": proposal,
+                    "decision": "rejected",
+                    "result": None,
+                }
+            )
+            state["pending"].pop(0)
+            if not state["pending"]:
+                _advance_agent_round(client)
+            st.rerun()
+        return
+
+    approved = [
+        (d["proposal"], d["result"]) for d in state["decisions"] if d["decision"] == "approved"
+    ]
+    rejected = [d for d in state["decisions"] if d["decision"] == "rejected"]
+
+    df = _results_dataframe(approved)
     if df.empty:
-        st.warning("Không có request nào được gửi ở lượt này.")
+        st.warning("Chưa có request nào được gửi -- mọi đề xuất đều bị Reject hoặc chưa duyệt.")
     else:
         chart_col, table_col = st.columns([1, 1])
         with chart_col:
@@ -588,29 +992,67 @@ def render_agent_tab(client: ProbeClient) -> None:
             render_latency_chart(df)
         st.dataframe(df, width="stretch", hide_index=True)
 
-    if run.rejected:
+    if rejected:
         st.warning(
-            "Bị từ chối trước khi gửi (id không hợp lệ, model được yêu cầu chọn lại):\n"
-            + "\n".join(f"- {r}" for r in run.rejected)
+            "Bị Reject bởi người dùng, không gửi:\n"
+            + "\n".join(
+                f"- vòng {d['round']}: {d['proposal'].route_id} + {d['proposal'].payload_id}"
+                for d in rejected
+            )
         )
 
     st.markdown(
         f"""<div class="insight-card">
-{len(run.results)} request đã gửi. <b>0</b> request chạm route ngoài allowlist --
-không có cách nào để chạm, vì route_id chỉ có thể là một trong các id ở tab Allowlist.
-{len(run.rejected)} đề xuất bị chặn trước khi gửi vì id không hợp lệ.
+{len(approved)} request đã gửi (được Approve). {len(rejected)} đề xuất bị Reject, không rời
+client. <b>0</b> request chạm route ngoài allowlist -- không có cách nào để chạm, vì route_id
+chỉ có thể là một trong các id ở tab Allowlist.
 </div>""",
         unsafe_allow_html=True,
     )
 
 
-MANUAL_PRESETS: list[tuple[str, str, str, str, str]] = [
-    ("POST /echo", "POST", "/echo", "", '{"value": "hello gateway"}'),
-    ("GET /slow (timeout)", "GET", "/slow", "ms=9000", ""),
-    ("GET /big (truncate)", "GET", "/big", "kb=500", ""),
-    ("GET /status/500", "GET", "/status/500", "", ""),
-    ("GET /health (ngoài allowlist)", "GET", "/health", "", ""),
+MANUAL_PRESETS: list[tuple[str, str, str, str, str, str]] = [
+    ("POST /echo", "", "POST", "/echo", "", '{"value": "hello gateway"}'),
+    ("GET /slow", "(timeout)", "GET", "/slow", "ms=9000", ""),
+    ("GET /big", "(truncate)", "GET", "/big", "kb=500", ""),
+    ("GET /status/500", "", "GET", "/status/500", "", ""),
+    ("GET /health", "(ngoài allowlist)", "GET", "/health", "", ""),
 ]
+
+
+def request_needs_approval(method: str, body_mode: str) -> bool:
+    """Every POST, and every request carrying a body -- week 5's "POST hoặc
+
+    request có payload đặc biệt". A plain GET with no body is left alone; a
+    GET built to carry a payload (`body_mode` set from "Không có") is not,
+    because it is still a test payload going out, just not via POST.
+    """
+    return method == "POST" or body_mode != "Không có"
+
+
+def _send_manual_request(client: ProbeClient, spec: dict) -> None:
+    """The only place `page_manual` actually calls `client.request` -- after
+
+    either the gate decided approval wasn't needed, or a human clicked
+    Approve on the pending card built from this same `spec`.
+    """
+    result = client.request(
+        spec["method"],
+        spec["path"],
+        params=spec["params"],
+        json_body=spec["json_body"],
+        raw_body=spec["raw_body"],
+        api_key=spec["api_key"],
+    )
+    proposal = Proposal(
+        route_id=spec["path"], payload_id="(thủ công)", why=spec.get("purpose") or "gửi thủ công"
+    )
+    st.session_state.setdefault("history", []).append((proposal, result))
+    st.session_state["manual_last_result"] = result
+    # Every send starts the diagram fresh -- even a repeat of the exact same
+    # request should re-open and re-play it, not silently no-op.
+    st.session_state["show_flow"] = True
+    st.session_state["manual_send_count"] = st.session_state.get("manual_send_count", 0) + 1
 
 
 def page_manual() -> None:
@@ -626,32 +1068,55 @@ def page_manual() -> None:
     col_request, col_result = st.columns([1.5, 2.5])
 
     with col_request, st.container(border=True):
-        st.markdown("#### 1. Dựng request")
+        render_card_header("1. Dựng request")
         st.caption("Mẫu nhanh -- điền sẵn form bên dưới:")
-        preset_cols = st.columns(len(MANUAL_PRESETS))
-        for col, (label, m, p, q, b) in zip(preset_cols, MANUAL_PRESETS, strict=True):
-            if col.button(label, key=f"preset_{p}_{q}"):
-                st.session_state["manual_method"] = m
-                st.session_state["manual_path"] = p
-                st.session_state["manual_query"] = q
-                st.session_state["manual_body"] = b
-                st.session_state["manual_body_mode"] = "JSON" if b else "Không có"
-                st.rerun()
+        with st.container(key="preset-row"):
+            preset_cols = st.columns(len(MANUAL_PRESETS))
+            for col, (label, note, m, p, q, b) in zip(preset_cols, MANUAL_PRESETS, strict=True):
+                with col:
+                    if st.button(label, key=f"preset_{p}_{q}"):
+                        st.session_state["manual_method"] = m
+                        st.session_state["manual_path"] = p
+                        st.session_state["manual_query"] = q
+                        st.session_state["manual_body"] = b
+                        st.session_state["manual_body_mode"] = "JSON" if b else "Không có"
+                        st.rerun()
+                    st.markdown(
+                        f'<div class="preset-note">{note or "&nbsp;"}</div>',
+                        unsafe_allow_html=True,
+                    )
 
-        method = st.selectbox(
+        # Wide enough for "OPTIONS" (the longest method) plus the select
+        # arrow -- 1:2:2 clipped it to "P..." for POST.
+        method_col, path_col, query_col = st.columns([1.5, 1.9, 1.6])
+        method = method_col.selectbox(
             "Method",
             ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
             key="manual_method",
         )
-        path = st.text_input("Path", key="manual_path")
-        query = st.text_input("Query string (không có dấu ?, vd: ms=200)", key="manual_query")
+        path = path_col.text_input("Path", key="manual_path")
+        query = query_col.text_input(
+            "Query string", key="manual_query", help="Không có dấu ?, ví dụ: ms=200"
+        )
         body_mode = st.radio(
             "Body", ["Không có", "JSON", "Text thô"], horizontal=True, key="manual_body_mode"
         )
         body_text = ""
         if body_mode != "Không có":
-            body_text = st.text_area("Nội dung body", key="manual_body")
-        wrong_key = st.checkbox("Gửi với API key sai -- demo nhánh 401")
+            # height=80 (Streamlit's floor): the default (~140px) budgeted for
+            # far more lines than these demo payloads ever need -- see
+            # inject_css for why this page is tuned to fit one screen at all.
+            body_text = st.text_area("Nội dung body", key="manual_body", height=80)
+        needs_approval = request_needs_approval(method, body_mode)
+        flag_col, purpose_col = st.columns([1, 2])
+        wrong_key = flag_col.checkbox("API key sai (401)")
+        purpose = ""
+        if needs_approval:
+            purpose = purpose_col.text_input(
+                "Mục đích (bắt buộc)",
+                key="manual_purpose",
+                help="Request này sẽ cần bạn bấm Approve trước khi thực sự được gửi.",
+            )
 
         if st.button("Gửi request", type="primary"):
             params = dict(urllib.parse.parse_qsl(query)) if query.strip() else None
@@ -668,35 +1133,57 @@ def page_manual() -> None:
                 raw_body = body_text.encode("utf-8")
 
             if body_valid:
-                result = client.request(
-                    method,
-                    path,
-                    params=params,
-                    json_body=json_body,
-                    raw_body=raw_body,
-                    api_key="deliberately-wrong-key" if wrong_key else None,
-                )
-                from safe_probe.plan import Proposal
-
-                proposal = Proposal(route_id=path, payload_id="(thủ công)", why="gửi thủ công")
-                st.session_state.setdefault("history", []).append((proposal, result))
-                st.session_state["manual_last_result"] = result
-                # Every send starts the diagram fresh -- even a repeat of the
-                # exact same request should re-open and re-play it, not
-                # silently no-op.
-                st.session_state["show_flow"] = True
-                st.session_state["manual_send_count"] = (
-                    st.session_state.get("manual_send_count", 0) + 1
-                )
+                spec = {
+                    "method": method,
+                    "path": path,
+                    "params": params,
+                    "json_body": json_body,
+                    "raw_body": raw_body,
+                    "api_key": "deliberately-wrong-key" if wrong_key else None,
+                    "purpose": purpose,
+                }
+                if needs_approval:
+                    # POST, or any method carrying a payload (JSON/raw body):
+                    # show endpoint + payload + purpose and wait for a human
+                    # decision before the tool sends anything -- see
+                    # docs/adr/0006 and AGENTS.md.
+                    st.session_state["manual_pending"] = spec
+                else:
+                    _send_manual_request(client, spec)
 
     with col_result:
+        pending = st.session_state.get("manual_pending")
+        if pending is not None:
+            with st.container(border=True):
+                render_card_header("Chờ phê duyệt trước khi gửi")
+                st.markdown(f"**Endpoint:** `{pending['method']} {pending['path']}`")
+                if pending["params"]:
+                    st.markdown(f"**Query:** `{pending['params']}`")
+                if pending["json_body"] is not None:
+                    st.markdown("**Payload (JSON):**")
+                    st.code(json.dumps(pending["json_body"], ensure_ascii=False), language="json")
+                elif pending["raw_body"] is not None:
+                    st.markdown("**Payload (raw):**")
+                    st.code(pending["raw_body"].decode("utf-8", errors="replace"), language=None)
+                st.markdown(f"**Mục đích:** {pending['purpose'] or '(chưa nhập)'}")
+                col_a, col_r = st.columns(2)
+                if col_a.button("✅ Approve & gửi", key="manual_approve"):
+                    _send_manual_request(client, pending)
+                    st.session_state.pop("manual_pending", None)
+                    st.rerun()
+                if col_r.button("❌ Reject", key="manual_reject"):
+                    st.session_state.pop("manual_pending", None)
+                    st.info("Đã Reject -- không có request nào được gửi.")
+                    st.rerun()
+            return
+
         result: ProbeResult | None = st.session_state.get("manual_last_result")
         if result is None:
             st.info("Gửi một request ở bên trái để xem kết quả và luồng xử lý ở đây.")
             return
 
         with st.container(border=True):
-            st.markdown("#### 2. Kết quả")
+            render_card_header("2. Kết quả")
             status_txt = "-" if result.status is None else str(result.status)
             decision_txt = (
                 f" -- gateway: <code>{result.decision}</code>" if result.decision else ""
@@ -729,21 +1216,23 @@ def page_manual() -> None:
         if not st.session_state.get("show_flow", False):
             return
 
-        st.write("")
         with st.container(border=True):
-            st.markdown("#### 3. Luồng xử lý ở gateway")
+            render_card_header("3. Luồng xử lý ở gateway")
+            # No caption spelling out the sequence in text: the diagram below
+            # already shows it, color-coded, and repeating it as a text line
+            # was the single most disposable chunk of vertical space on this
+            # page once the fit-one-screen pass started (see inject_css).
             sequence, final_state = _flow_sequence(result)
-            st.caption(" → ".join(NODE_LABELS.get(n, n) for n in sequence))
             render_flow_diagram(
                 sequence, final_state, st.session_state.get("manual_send_count", 0)
             )
 
 
 def render_history_tab() -> None:
-    st.subheader("Lịch sử phiên")
-    st.caption(
+    render_section_header(
+        "Lịch sử phiên",
         "Chỉ tính các request đã gửi trong phiên trình duyệt này -- không đọc chung "
-        "log với người xem khác, vì mỗi phiên Streamlit không chia sẻ trạng thái."
+        "log với người xem khác, vì mỗi phiên Streamlit không chia sẻ trạng thái.",
     )
     history = st.session_state.get("history", [])
     if not history:
@@ -792,6 +1281,7 @@ def _init_manual_state() -> None:
     st.session_state.setdefault("manual_query", "")
     st.session_state.setdefault("manual_body_mode", "Không có")
     st.session_state.setdefault("manual_body", "")
+    st.session_state.setdefault("manual_purpose", "")
 
 
 PAGE_MANUAL = st.Page(page_manual, title="Gửi request thủ công", icon="🛠️", default=True)
@@ -808,10 +1298,10 @@ def main() -> None:
         st.error(f"Lỗi cấu hình: {exc}")
         st.stop()
 
-    render_sidebar_brand()
-    render_sidebar_status(client)
+    pg = st.navigation([PAGE_MANUAL, PAGE_AGENT], position="hidden")
 
-    pg = st.navigation([PAGE_MANUAL, PAGE_AGENT])
+    render_top_bar([PAGE_MANUAL, PAGE_AGENT], client)
+
     pg.run()
 
 

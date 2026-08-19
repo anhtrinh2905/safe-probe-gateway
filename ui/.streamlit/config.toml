@@ -1,12 +1,13 @@
-# Dark, technical palette -- picked for a dev/security tool. Matches the
-# semantic colors used for outcome charts in streamlit_app.py.
+# Light, professional palette ("Slate Professional") -- matches the semantic
+# colors and IBM Plex fonts loaded by inject_css() in streamlit_app.py.
 [theme]
-base = "dark"
-primaryColor = "#22C55E"
-backgroundColor = "#0F172A"
-secondaryBackgroundColor = "#1E293B"
-textColor = "#F8FAFC"
-font = "sans serif"
+base = "light"
+primaryColor = "#0369A1"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+font = "IBM Plex Sans"
+codeFont = "IBM Plex Mono"
 
 [server]
 # XSRF protection requires CORS, so CORS is left at its default (on) -- setting
