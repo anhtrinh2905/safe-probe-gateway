@@ -258,16 +258,6 @@ code, .mono {{ font-family: 'IBM Plex Mono', monospace !important; }}
   font-size:0.78rem; color:{FG_MUTED}; margin-top:0.1rem;
 }}
 
-/* Section header (render_section_header) -- the boxed, shadowed title bar
-   used for a tab's own heading (Lịch sử phiên, ...), one size down from
-   `.page-header` since it never carries the page's own icon. */
-.section-hd-title {{
-  font-size:1.08rem; font-weight:700; color:{FG};
-}}
-.section-hd-sub {{
-  font-size:0.85rem; color:{FG_MUTED}; margin-top:0.3rem;
-}}
-
 /* Quick-fill preset buttons (page_manual) -- smaller label text than a
    regular button, plus a one-line note underneath (e.g. "(timeout)") that
    must never wrap: a wrapped note pushed each button's row height around and
@@ -353,19 +343,6 @@ def render_page_header(icon: str, title: str, subtitle: str = "") -> None:
         st.markdown(
             f'<div class="page-header"><div class="page-header-title">{icon} {title}</div>'
             f"{sub_html}</div>",
-            unsafe_allow_html=True,
-        )
-
-
-def render_section_header(title: str, subtitle: str = "") -> None:
-    """Boxed, shadowed title bar for a tab's own heading (e.g. 'Lich su
-    phien') -- `.section-hd-*` in `inject_css`, one size down from
-    `render_page_header` since these never carry a page icon.
-    """
-    with st.container(border=True):
-        sub_html = f'<div class="section-hd-sub">{subtitle}</div>' if subtitle else ""
-        st.markdown(
-            f'<div class="section-hd-title">{title}</div>{sub_html}',
             unsafe_allow_html=True,
         )
 
@@ -1139,7 +1116,7 @@ def render_agent_tab(client: ProbeClient) -> None:
         st.warning("Chưa có request nào được gửi -- mọi đề xuất đều bị Reject hoặc chưa duyệt.")
     else:
         # Judge verdict per row, same order as `sent_decisions` -- kept out of
-        # `_results_dataframe` itself since `render_history_tab` reuses that
+        # `_results_dataframe` itself since `page_history` reuses that
         # function for manual-page sends, which never carry a verdict.
         df["gui_boi"] = [
             "tự động (rủi ro thấp)" if d["decision"] == "auto_approved" else "Approve"
@@ -1543,15 +1520,16 @@ def render_session_log_section() -> None:
     )
 
 
-def render_history_tab() -> None:
-    render_section_header(
+def page_history() -> None:
+    render_page_header(
+        "🕘",
         "Lịch sử phiên",
         "Chỉ tính các request đã gửi trong phiên trình duyệt này -- không đọc chung "
         "log với người xem khác, vì mỗi phiên Streamlit không chia sẻ trạng thái.",
     )
     history = st.session_state.get("history", [])
     if not history:
-        st.info("Chưa có request nào trong phiên này. Sang tab 'Chạy Agent' để bắt đầu.")
+        st.info("Chưa có request nào trong phiên này. Sang trang 'Agent AI' hoặc 'Gửi request thủ công' để bắt đầu.")
         return
 
     df = _results_dataframe(history)
@@ -1585,13 +1563,10 @@ def page_agent() -> None:
         "Agent AI",
         "LLM đề xuất route_id + payload_id từ hai danh sách đóng, bạn chỉ bấm chạy "
         "-- xem docs/adr/0002-guardrail-hai-lop.md để biết vì sao chỉ hai định danh. "
-        "Allowlist đầy đủ giờ ở trang riêng, xem nav phía trên.",
+        "Allowlist đầy đủ giờ ở trang riêng, xem nav phía trên. Lịch sử phiên giờ cũng "
+        "ở trang riêng, xem nav phía trên.",
     )
-    tab_agent, tab_history = st.tabs(["Chạy Agent", "Lịch sử phiên"])
-    with tab_agent:
-        render_agent_tab(client)
-    with tab_history:
-        render_history_tab()
+    render_agent_tab(client)
 
 
 def _init_manual_state() -> None:
@@ -1614,20 +1589,22 @@ def _init_manual_state() -> None:
 PAGE_MANUAL = st.Page(page_manual, title="Gửi request thủ công", icon="🛠️", default=True)
 PAGE_ALLOWLIST = st.Page(page_allowlist, title="Allowlist", icon="📋")
 PAGE_AGENT = st.Page(page_agent, title="Agent AI", icon="🤖")
+PAGE_HISTORY = st.Page(page_history, title="Lịch sử phiên", icon="🕘")
 
 # Nav order: Allowlist first (what you're allowed to touch), then the two
-# ways of touching it. `PAGE_MANUAL.default=True` is independent of this
-# order -- the app still opens on "Gửi request thủ công".
-PAGES = [PAGE_ALLOWLIST, PAGE_MANUAL, PAGE_AGENT]
+# ways of touching it, then the session history for both. `PAGE_MANUAL.default=True`
+# is independent of this order -- the app still opens on "Gửi request thủ công".
+PAGES = [PAGE_ALLOWLIST, PAGE_MANUAL, PAGE_AGENT, PAGE_HISTORY]
 
 # Relative width for each nav link in `render_top_bar`'s `nav_col`, keyed by
 # title -- "Gửi request thủ công" is roughly twice as many characters as the
-# other two, and an equal three-way split (`st.columns(len(pages))`) clipped
-# it. Falls back to 1.0 for any page not listed here.
+# other three, and an equal split (`st.columns(len(pages))`) clipped it.
+# Falls back to 1.0 for any page not listed here.
 NAV_LINK_WIDTHS: dict[str, float] = {
     "Gửi request thủ công": 1.7,
     "Allowlist": 1.0,
     "Agent AI": 1.0,
+    "Lịch sử phiên": 1.0,
 }
 
 
