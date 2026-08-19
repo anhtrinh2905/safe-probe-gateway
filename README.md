@@ -15,9 +15,12 @@ quyết định request nào đi tiếp.
 
 **[https://ui-production-75e7.up.railway.app](https://ui-production-75e7.up.railway.app)**
 
-Giao diện Streamlit để tự gõ goal cho agent, tự bấm chạy, và tự xem gateway
-quyết định — không cần clone repo hay chạy Docker. Bản deploy chỉ chạy với
-`lab-app` (không có juice-shop), xem lý do ở ADR 0005.
+Giao diện Streamlit có ba trang: **Allowlist** (route nào gọi được, thuộc
+target nào), **Gửi request thủ công**, **Agent AI**. Bản deploy trên Railway
+giờ dùng **đúng một allowlist** với local — Juice Shop đã được thêm lại cùng
+lab-app (đảo ngược Quyết định 2 của ADR 0005, xem ADR 0010), nên preset
+"🔴 Login SQLi" và nhánh 403 forbidden-group demo được công khai, không chỉ ở
+local.
 
 ---
 
@@ -50,12 +53,13 @@ nào trong ba trường hợp đó có gì để kết nối tới.
 | -------------------------------------------------- | ----------------------------------- |
 | Kiểm tra gateway bằng `curl` (`scripts/smoke.sh`)  | **14 / 14 pass**                    |
 | Request payload an toàn đã gửi (`probe suite`)     | **72**                              |
-| Test tự động                                       | **112 pass**                        |
+| Test tự động                                       | **131 pass**                        |
 | Endpoint tuần 3 khai thác được, nay không tới được | **2** — `/ftp`, `/rest/basket/{id}` |
-| API key xuất hiện trong log                        | **0**                               |
+| API key / dữ liệu nhạy cảm xuất hiện trong log     | **0**                               |
+| Route Railway parity với local (`policy.railway.yml`) | **9 / 9**                        |
 
 
-**Báo cáo đầy đủ:** `[reports/2026-08-14_TrinhThiLanAnh_Week4.md](reports/2026-08-10_TrinhThiLanAnh_Track0.md)`  
+**Báo cáo đầy đủ:** `[reports/2026-08-14_TrinhThiLanAnh_Week4.md](reports/2026-08-10_TrinhThiLanAnh_Track0.md)` · `[reports/2026-08-19_TrinhThiLanAnh_Week5.md](reports/2026-08-19_TrinhThiLanAnh_Week5.md)`  
 Khái niệm gateway viết lại bằng cách em hiểu: `[reports/cac_khai_niem.md](reports/cac_khai_niem.md)`  
 Transcript từng mã lỗi: `[reports/evidence/](reports/evidence/)`
 
@@ -104,6 +108,27 @@ nguyên vẹn.
 
 
 
+## Guardrail cho agent (tuần 5)
+
+Agent không còn tự gửi request. Agent 1 chỉ *đề xuất* (`route_id` + `payload_id`
+từ hai danh sách đóng, không viết URL, không thấy API key); agent 2 chấm rủi ro
+`low`/`needs_review` trên đề xuất đã hợp lệ; `low` gửi luôn, `needs_review` chờ
+người bấm Approve/Reject. Cả hai agent có 3 rule chống prompt injection (không
+tin goal/response, không lộ prompt/key, chỉ chọn từ danh sách đóng), kiểm bằng
+LLM call thật trong `tests/test_prompt_injection.py`.
+
+Log không còn một `***REDACTED***` chung — mỗi loại dữ liệu nhạy cảm có tag
+riêng (`[REDACTED_EMAIL]`, `[REDACTED_TOKEN]`, `[REDACTED_API_KEY]`,
+`[REDACTED_PASSWORD]`, `[REDACTED_PHONE]`, `[REDACTED_PII]`), và UI tô sáng
+đúng những tag đó trong response kèm số lượng đã che. Mỗi phiên trình duyệt
+cũng ghi một file JSONL riêng trong `logs/`, xem/tải được từ trang "Agent AI".
+
+Chi tiết + bảng test: `reports/2026-08-19_TrinhThiLanAnh_Week5.md`, ADR 0006–0009.
+
+---
+
+
+
 ## Repo này được tổ chức thế nào
 
 
@@ -114,10 +139,11 @@ nguyên vẹn.
 | `src/safe_probe/`  | Python tool — stdlib-only                                           |
 | `ui/`              | Streamlit demo — consumer thứ ba của gateway                        |
 | `scripts/`         | `up.sh` `down.sh` `smoke.sh` `verify.sh`                            |
-| `docs/`            | **Quá trình**: phương pháp + 5 ADR                                  |
+| `docs/`            | **Quá trình**: phương pháp + 10 ADR                                 |
 | `data/`            | **Output máy**: audit log của tool và của gateway — xoá được        |
+| `logs/`            | **Output máy**: 1 file JSONL / phiên trình duyệt của UI — xoá được  |
 | `reports/`         | **Kết quả**: báo cáo + bằng chứng + bảng suite                      |
-| `tests/`           | 112 test                                                            |
+| `tests/`           | 131 test                                                            |
 
 
 Ba ranh giới cần giữ:
@@ -158,7 +184,8 @@ PYTHONPATH=src python3 -m safe_probe.cli suite          # toàn bộ catalogue x
 PYTHONPATH=src python3 -m safe_probe.cli --no-client-limits get /ftp   # vẫn bị chặn
 ```
 
-Lớp LLM (tuỳ chọn, cần `OPENCODE_API_KEY` trong `.env`):
+Lớp LLM (tuỳ chọn, cần `OPENCODE_API_KEY` trong `.env`). CLI gửi thẳng, không
+qua bước duyệt — bước duyệt chỉ có trên UI:
 
 ```bash
 PYTHONPATH=src python3 -m safe_probe.cli plan --goal "input validation" --rounds 2
@@ -168,7 +195,8 @@ PYTHONPATH=src python3 -m safe_probe.cli plan --goal "input validation" --rounds
 > `suite`, nếu không những request đầu sẽ nhận 429 — đúng như thiết kế, chỉ là
 > không phải thứ đang muốn đo.
 
-Giao diện Streamlit (sau khi `scripts/up.sh` đã chạy):
+Giao diện Streamlit (sau khi `scripts/up.sh` đã chạy) — ba trang: Allowlist,
+Gửi request thủ công, Agent AI (agent đề xuất → agent giám sát → duyệt nếu cần):
 
 ```bash
 pip install -r ui/requirements.txt
@@ -185,7 +213,8 @@ PYTHONPATH=src streamlit run ui/streamlit_app.py
 2. `docker-compose.yml` — khối `networks` ở cuối là luận điểm chính
 3. `[docs/adr/0003-topology-la-bang-chung.md](docs/adr/0003-topology-la-bang-chung.md)` — vì sao khối đó quan trọng hơn mọi thứ khác
 4. `[docs/methodology.md](docs/methodology.md)` — bốn lớp kiểm soát, xếp từ yếu tới mạnh
-5. `[reports/2026-08-10_TrinhThiLanAnh_Track0.md](reports/2026-08-10_TrinhThiLanAnh_Track0.md)` — báo cáo đầy đủ
+5. `[reports/2026-08-10_TrinhThiLanAnh_Track0.md](reports/2026-08-10_TrinhThiLanAnh_Track0.md)` — báo cáo tuần 4
+6. `[reports/2026-08-19_TrinhThiLanAnh_Week5.md](reports/2026-08-19_TrinhThiLanAnh_Week5.md)` — báo cáo tuần 5: sơ đồ hai agent, prompt injection, human-in-the-loop, che dữ liệu
 
 
 
@@ -198,6 +227,11 @@ PYTHONPATH=src streamlit run ui/streamlit_app.py
 | [0002](docs/adr/0002-guardrail-hai-lop.md)           | Guardrail hai lớp, và LLM chỉ được chọn hai định danh             |
 | [0003](docs/adr/0003-topology-la-bang-chung.md)      | Target không publish port: topology là bằng chứng                 |
 | [0004](docs/adr/0004-payload-an-toan-la-bat-bien.md) | "Payload an toàn" là bất biến có test                             |
-| [0005](docs/adr/0005-streamlit-demo-tren-railway.md) | Streamlit demo là consumer riêng, deploy lab-app-only lên Railway |
+| [0005](docs/adr/0005-streamlit-demo-tren-railway.md) | Streamlit demo là consumer riêng trên Railway (Quyết định 2 đã bị đảo ngược bởi 0010) |
+| [0006](docs/adr/0006-guardrail-tuan-5.md)            | Guardrail tuần 5: propose/send tách rời, tag hoá dữ liệu nhạy cảm |
+| [0007](docs/adr/0007-agent-giam-sat-rui-ro.md)       | Agent 2 giám sát rủi ro, advisory-only, fail-safe về needs_review |
+| [0008](docs/adr/0008-nhat-ky-phien-jsonl.md)         | Nhật ký JSONL theo từng phiên trình duyệt trong `logs/`           |
+| [0009](docs/adr/0009-giam-sat-request-thu-cong.md)   | Agent giám sát cũng chấm cả request gõ tay trên trang thủ công    |
+| [0010](docs/adr/0010-railway-them-lai-juice-shop.md) | Railway dùng lại đúng allowlist của local, thêm Juice Shop        |
 
 
