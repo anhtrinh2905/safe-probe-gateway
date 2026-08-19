@@ -20,7 +20,14 @@ from collections.abc import Callable
 from typing import Any
 
 from safe_probe.llm import LLMError
-from safe_probe.plan import Proposal, Verdict, judge_proposal, send_probe, should_auto_send
+from safe_probe.plan import (
+    Proposal,
+    Verdict,
+    judge_manual_request,
+    judge_proposal,
+    send_probe,
+    should_auto_send,
+)
 
 
 def _logged_paths(tmp_path) -> list[str]:
@@ -88,6 +95,24 @@ def test_judge_proposal_fails_safe_to_needs_review_when_the_llm_is_unusable(make
     # A person never sees a stack trace here: whatever breaks in the judge
     # call, the proposal must still land on `needs_review`, never on "low".
     verdict = judge_proposal(proposal, "input validation", published, llm=_RaisingLLM())
+
+    assert verdict.risk == "needs_review"
+    assert should_auto_send(verdict) is False
+
+
+def test_judge_manual_request_fails_safe_to_needs_review_when_the_llm_is_unusable() -> None:
+    # Same fail-safe contract as judge_proposal, for page_manual's free-typed
+    # requests (docs/adr/0009) -- no client/gateway needed since there is no
+    # catalogue lookup on this path at all.
+    verdict = judge_manual_request(
+        method="GET",
+        path="/rest/products/search",
+        params={"q": "test"},
+        json_body=None,
+        raw_body=None,
+        purpose="input validation probe",
+        llm=_RaisingLLM(),
+    )
 
     assert verdict.risk == "needs_review"
     assert should_auto_send(verdict) is False

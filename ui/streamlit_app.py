@@ -22,24 +22,36 @@ a hard-coded ADR example.
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import urllib.parse
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
-from safe_probe.audit import AuditLog
+from safe_probe.audit import (
+    REDACTED_API_KEY,
+    REDACTED_EMAIL,
+    REDACTED_PASSWORD,
+    REDACTED_PHONE,
+    REDACTED_PII,
+    REDACTED_TOKEN,
+    AuditLog,
+)
 from safe_probe.client import ProbeClient, ProbeResult
-from safe_probe.config import Config, ConfigError
+from safe_probe.config import REPO_ROOT, Config, ConfigError
 from safe_probe.llm import LLMClient, LLMError
 from safe_probe.payloads import UnsafePayload
 from safe_probe.payloads import get as get_payload
 from safe_probe.plan import (
     Proposal,
     Verdict,
+    judge_manual_request,
     judge_proposal,
     propose_round,
     send_probe,
@@ -49,6 +61,13 @@ from safe_probe.plan import (
 MAX_RUNS_PER_SESSION = 5
 MAX_ROUNDS = 6
 DEMO_LOG_PATH = Path("/tmp/streamlit-probe/requests.jsonl")
+
+# One jsonl per browser session, distinct from `DEMO_LOG_PATH` above: that one
+# is the process-wide, low-level request/response audit trail every session
+# shares (redaction, rate limiting -- see `get_client`); this one is a
+# per-session, user-facing summary meant to be read and downloaded from the
+# "Lịch sử phiên" tab. See AGENTS.md's `logs/` row.
+SESSION_LOGS_DIR = REPO_ROOT / "logs"
 
 # A proposal that actually reached `send_probe` -- whether a human clicked
 # Approve, or the judge agent (`plan.py::judge_proposal`) rated it "low" and
@@ -74,7 +93,15 @@ GREEN = "#16A34A"
 BLUE = "#2563EB"
 AMBER = "#D97706"
 RED = "#DC2626"
+RED_SOFT = "#FEF2F2"
+RED_DARK = "#991B1B"
 GRAY = "#64748B"
+# Highlighter yellow for a `[REDACTED_*]` tag inside a response body --
+# deliberately not AMBER (already means "the gateway made a policy call"
+# above) or RED (already means "something failed" / the unsafe sample
+# preset) -- this needs its own meaning: "this was hidden on purpose".
+REDACT_HL = "#FEF08A"
+REDACT_HL_TEXT = "#854D0E"
 
 OUTCOME_COLORS: dict[str, str] = {
     "ok": GREEN,
@@ -241,6 +268,45 @@ code, .mono {{ font-family: 'IBM Plex Mono', monospace !important; }}
   font-size:0.68rem; color:{FG_MUTED}; text-align:center;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   margin-top:0.15rem;
+}}
+
+/* The one deliberately-unsafe-looking sample preset (MANUAL_PRESETS,
+   danger=True) -- red is otherwise reserved for "something actually failed"
+   (see OUTCOME_COLORS), used here on purpose so this one button reads as
+   "here be an attack shape" before anyone even clicks it. */
+.st-key-preset_unsafe_sample button {{
+  background:{RED_SOFT}; border-color:{RED}; color:{RED_DARK};
+}}
+.st-key-preset_unsafe_sample button:hover {{
+  background:#FEE2E2; border-color:{RED};
+}}
+.preset-note-danger {{
+  color:{RED}; font-weight:600;
+  /* Overrides `.preset-note`'s nowrap+ellipsis -- the other five presets'
+     notes stay one line each so their row heights match, but this one note
+     ("POST /rest/user/login") is long enough that truncating it hid the
+     path entirely; letting only this one wrap is a smaller layout cost than
+     losing the information. */
+  white-space:normal; overflow:visible; text-overflow:clip;
+}}
+
+/* Response body panel (render_redacted_body) -- a hand-rolled `st.code`
+   look-alike instead of the real thing, because `st.code` has no way to
+   style one substring differently from the rest. */
+.redacted-body {{
+  background:{BG}; border:1px solid {BORDER}; border-radius:8px;
+  padding:0.7rem 0.9rem; font-size:0.82rem; line-height:1.5;
+  white-space:pre-wrap; word-break:break-word; color:{FG};
+  /* The "Đã ẩn: ..." caption right after this (render_redacted_body) sat
+     almost flush against this box's own bottom border under the page's
+     tightened inter-element gap (see [data-testid="stVerticalBlock"] gap
+     above) -- this margin is what's actually keeping them apart, not that
+     shared gap alone. */
+  margin-bottom:0.5rem;
+}}
+.redacted-tag {{
+  background:{REDACT_HL}; color:{REDACT_HL_TEXT}; font-weight:700;
+  padding:0.05rem 0.3rem; border-radius:4px;
 }}
 </style>
 """,
@@ -1003,6 +1069,7 @@ def render_agent_tab(client: ProbeClient) -> None:
                     }
                 )
                 st.session_state["history"].append((proposal, result))
+                _append_session_log(proposal, result)
 
         def _pop_pending() -> None:
             state["pending"].pop(0)
@@ -1098,13 +1165,67 @@ chỉ có thể là một trong các id ở tab Allowlist.
     )
 
 
-MANUAL_PRESETS: list[tuple[str, str, str, str, str, str]] = [
-    ("POST /echo", "", "POST", "/echo", "", '{"value": "hello gateway"}'),
-    ("GET /slow", "(timeout)", "GET", "/slow", "ms=9000", ""),
-    ("GET /big", "(truncate)", "GET", "/big", "kb=500", ""),
-    ("GET /status/500", "", "GET", "/status/500", "", ""),
-    ("GET /health", "(ngoài allowlist)", "GET", "/health", "", ""),
+# (label, note, method, path, query, body, danger) -- `danger=True` marks the
+# one sample built to look like a real attack (see docs/adr/0009), styled red
+# in `inject_css` and given a fixed key instead of the derived
+# `preset_{path}_{query}` pattern, since that pattern can't safely become a
+# CSS class selector for a path containing `/`.
+MANUAL_PRESETS: list[tuple[str, str, str, str, str, str, bool]] = [
+    ("POST /echo", "", "POST", "/echo", "", '{"value": "hello gateway"}', False),
+    ("GET /slow", "(timeout)", "GET", "/slow", "ms=9000", "", False),
+    ("GET /big", "(truncate)", "GET", "/big", "kb=500", "", False),
+    ("GET /status/500", "", "GET", "/status/500", "", "", False),
+    ("GET /health", "(ngoài allowlist)", "GET", "/health", "", "", False),
+    (
+        # Short on purpose: the real "POST /rest/user/login" is long enough on
+        # its own to wrap mid-word inside a 6-across preset row -- the full
+        # path still shows in the note right underneath, just on one line.
+        "🔴 Login SQLi",
+        "(POST /rest/user/login)",
+        "POST",
+        "/rest/user/login",
+        "",
+        '{"email": "admin@juice-sh.op\' OR 1=1--", "password": "x"}',
+        True,
+    ),
 ]
+
+
+# Vietnamese label for each tag `safe_probe.audit.scrub` can produce -- used
+# only to build the "Đã ẩn: ..." note below, never to decide what gets
+# redacted (that decision already happened, at the sink, before this UI ever
+# sees `body_excerpt` -- see docs/adr/0006).
+REDACTION_TAG_LABELS: dict[str, str] = {
+    REDACTED_EMAIL: "email",
+    REDACTED_PHONE: "số điện thoại",
+    REDACTED_TOKEN: "token",
+    REDACTED_API_KEY: "API key",
+    REDACTED_PASSWORD: "password",
+    REDACTED_PII: "PII",
+}
+
+
+def render_redacted_body(body_excerpt: str) -> None:
+    """A response body, with any `[REDACTED_*]` tag highlighted and counted.
+
+    Purely a display decision -- `body_excerpt` already had these tags
+    substituted in by `scrub()` before this function ever sees it, so this
+    only makes an already-safe string easier to *notice* is safe. Escaping
+    happens before the tags are searched for, and none of the tag strings
+    themselves contain HTML-special characters, so the two steps don't
+    interfere with each other.
+    """
+    escaped = html.escape(body_excerpt)
+    counts: dict[str, int] = {}
+    for tag, label in REDACTION_TAG_LABELS.items():
+        n = escaped.count(tag)
+        if n:
+            counts[label] = counts.get(label, 0) + n
+            escaped = escaped.replace(tag, f'<span class="redacted-tag">{tag}</span>')
+    st.markdown(f'<div class="mono redacted-body">{escaped}</div>', unsafe_allow_html=True)
+    if counts:
+        summary = ", ".join(f"{n} {label}" for label, n in counts.items())
+        st.caption(f"🔒 Đã ẩn trong response này: {summary}.")
 
 
 def request_needs_approval(method: str, body_mode: str) -> bool:
@@ -1135,6 +1256,7 @@ def _send_manual_request(client: ProbeClient, spec: dict) -> None:
         route_id=spec["path"], payload_id="(thủ công)", why=spec.get("purpose") or "gửi thủ công"
     )
     st.session_state.setdefault("history", []).append((proposal, result))
+    _append_session_log(proposal, result)
     st.session_state["manual_last_result"] = result
     # Every send starts the diagram fresh -- even a repeat of the exact same
     # request should re-open and re-play it, not silently no-op.
@@ -1148,28 +1270,36 @@ def page_manual() -> None:
         "🛠️",
         "Gửi request thủ công",
         "Tự dựng một request bất kỳ và gửi thẳng tới gateway -- gateway, không phải "
-        "trang này, quyết định nó đi tới đâu. Chỉ chạm được lab-app, xem đầy đủ "
-        "allowlist ở trang 'Agent AI'.",
+        "trang này, quyết định nó đi tới đâu (allowlist đầy đủ ở trang 'Agent AI'). "
+        "Agent giám sát chấm rủi ro từng request trước khi gửi, cùng cơ chế với tab "
+        "'Agent AI' -- xem docs/adr/0009.",
     )
 
-    col_request, col_result = st.columns([1.5, 2.5])
+    # Equal split (was [1.5, 2.5]) -- 6 preset buttons across the request
+    # column need the extra width, and a too-narrow column is what wrapped
+    # "POST /rest/user/login" mid-word (see docs/adr/0009's preset labels).
+    col_request, col_result = st.columns([1, 1])
 
     with col_request, st.container(border=True):
         render_card_header("1. Dựng request")
         st.caption("Mẫu nhanh -- điền sẵn form bên dưới:")
         with st.container(key="preset-row"):
             preset_cols = st.columns(len(MANUAL_PRESETS))
-            for col, (label, note, m, p, q, b) in zip(preset_cols, MANUAL_PRESETS, strict=True):
+            for col, (label, note, m, p, q, b, danger) in zip(
+                preset_cols, MANUAL_PRESETS, strict=True
+            ):
                 with col:
-                    if st.button(label, key=f"preset_{p}_{q}"):
+                    key = "preset_unsafe_sample" if danger else f"preset_{p}_{q}"
+                    if st.button(label, key=key):
                         st.session_state["manual_method"] = m
                         st.session_state["manual_path"] = p
                         st.session_state["manual_query"] = q
                         st.session_state["manual_body"] = b
                         st.session_state["manual_body_mode"] = "JSON" if b else "Không có"
                         st.rerun()
+                    note_class = "preset-note preset-note-danger" if danger else "preset-note"
                     st.markdown(
-                        f'<div class="preset-note">{note or "&nbsp;"}</div>',
+                        f'<div class="{note_class}">{note or "&nbsp;"}</div>',
                         unsafe_allow_html=True,
                     )
 
@@ -1194,11 +1324,11 @@ def page_manual() -> None:
             # far more lines than these demo payloads ever need -- see
             # inject_css for why this page is tuned to fit one screen at all.
             body_text = st.text_area("Nội dung body", key="manual_body", height=80)
-        needs_approval = request_needs_approval(method, body_mode)
+        rule_needs_approval = request_needs_approval(method, body_mode)
         flag_col, purpose_col = st.columns([1, 2])
         wrong_key = flag_col.checkbox("API key sai (401)")
         purpose = ""
-        if needs_approval:
+        if rule_needs_approval:
             purpose = purpose_col.text_input(
                 "Mục đích (bắt buộc)",
                 key="manual_purpose",
@@ -1220,6 +1350,16 @@ def page_manual() -> None:
                 raw_body = body_text.encode("utf-8")
 
             if body_valid:
+                with st.spinner("Agent giám sát đang chấm rủi ro..."):
+                    verdict = judge_manual_request(
+                        method, path, params, json_body, raw_body, purpose
+                    )
+                # Union of two signals, not a replacement: the week-5 rule
+                # (POST / any body) always still requires a click; the judge
+                # can only ADD a reason to require one (e.g. a bodyless GET at
+                # an attack-shaped path), never remove the rule's own floor --
+                # see docs/adr/0009.
+                needs_approval = rule_needs_approval or not should_auto_send(verdict)
                 spec = {
                     "method": method,
                     "path": path,
@@ -1228,12 +1368,13 @@ def page_manual() -> None:
                     "raw_body": raw_body,
                     "api_key": "deliberately-wrong-key" if wrong_key else None,
                     "purpose": purpose,
+                    "verdict": verdict,
                 }
                 if needs_approval:
-                    # POST, or any method carrying a payload (JSON/raw body):
-                    # show endpoint + payload + purpose and wait for a human
-                    # decision before the tool sends anything -- see
-                    # docs/adr/0006 and AGENTS.md.
+                    # POST, request mang body, hoặc agent giám sát chấm
+                    # needs_review: hiện endpoint + payload + mục đích + nhận
+                    # định, chờ người quyết định trước khi tool gửi -- xem
+                    # docs/adr/0006, docs/adr/0009 và AGENTS.md.
                     st.session_state["manual_pending"] = spec
                 else:
                     _send_manual_request(client, spec)
@@ -1253,6 +1394,11 @@ def page_manual() -> None:
                     st.markdown("**Payload (raw):**")
                     st.code(pending["raw_body"].decode("utf-8", errors="replace"), language=None)
                 st.markdown(f"**Mục đích:** {pending['purpose'] or '(chưa nhập)'}")
+                verdict = pending.get("verdict")
+                if verdict is not None:
+                    badge = "🟢 rủi ro thấp" if verdict.risk == "low" else "🔴 cần xem kỹ"
+                    reasoning = verdict.reasoning or "(không có)"
+                    st.markdown(f"**Nhận định của agent giám sát:** {badge} -- {reasoning}")
                 col_a, col_r = st.columns(2)
                 if col_a.button("✅ Approve & gửi", key="manual_approve"):
                     _send_manual_request(client, pending)
@@ -1285,7 +1431,7 @@ def page_manual() -> None:
             if result.error:
                 st.warning(result.error)
             if result.body_excerpt:
-                st.code(result.body_excerpt, language=None)
+                render_redacted_body(result.body_excerpt)
 
             show_flow = st.session_state.get("show_flow", False)
             toggle_col, _ = st.columns([1, 4])
@@ -1315,6 +1461,73 @@ def page_manual() -> None:
             )
 
 
+def _session_log_path() -> Path:
+    """This browser session's own log file -- created lazily, once.
+
+    One file per session, named by when the session's *first* request was
+    sent (not by page-load time), plus a short random suffix so two sessions
+    starting in the same second never collide.
+    """
+    path = st.session_state.get("session_log_path")
+    if path is None:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = SESSION_LOGS_DIR / f"session_{stamp}_{uuid.uuid4().hex[:8]}.jsonl"
+        st.session_state["session_log_path"] = path
+    return path
+
+
+def _append_session_log(proposal: Proposal, result: ProbeResult) -> None:
+    """Append one line for one sent request -- called next to every place
+
+    that already appends to `st.session_state["history"]` (`render_agent_tab`
+    and `page_manual`), so the file always matches what "Lịch sử phiên" shows.
+    `result.body_excerpt` is already redacted for the known API key by
+    `ProbeClient.request` -- nothing here needs to scrub anything further.
+    """
+    path = _session_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "route_id": proposal.route_id,
+        "payload_id": proposal.payload_id,
+        "why": proposal.why,
+        "method": result.method,
+        "path": result.path,
+        "status": result.status,
+        "outcome": result.outcome,
+        "decision": result.decision,
+        "answered_by": result.answered_by,
+        "elapsed_ms": result.elapsed_ms,
+        "response_bytes": result.response_bytes,
+        "body_excerpt": result.body_excerpt,
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def render_session_log_section() -> None:
+    """The jsonl file backing this tab's own table -- shown raw, downloadable.
+
+    Only ever this session's own file: `logs/` accumulates one file per
+    browser session for later inspection on disk, but this page does not
+    browse other sessions' files -- see docs/adr/0008.
+    """
+    render_card_header("Nhật ký phiên (JSONL)")
+    path = st.session_state.get("session_log_path")
+    if path is None or not path.exists():
+        st.info("Chưa có request nào được ghi log trong phiên này.")
+        return
+    content = path.read_text(encoding="utf-8")
+    st.caption(f"`{path.relative_to(REPO_ROOT)}` -- một dòng JSON cho mỗi request đã gửi.")
+    st.code(content, language="json")
+    st.download_button(
+        "⬇️ Tải file jsonl",
+        data=content,
+        file_name=path.name,
+        mime="application/jsonl",
+    )
+
+
 def render_history_tab() -> None:
     render_section_header(
         "Lịch sử phiên",
@@ -1335,6 +1548,8 @@ def render_history_tab() -> None:
         st.caption("Độ trễ theo thứ tự gửi, toàn phiên")
         render_latency_chart(df)
     st.dataframe(df, width="stretch", hide_index=True)
+
+    render_session_log_section()
 
 
 def page_agent() -> None:

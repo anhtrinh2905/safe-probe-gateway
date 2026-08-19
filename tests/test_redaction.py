@@ -41,6 +41,20 @@ def test_a_credential_shaped_string_is_caught_even_when_unknown() -> None:
     assert FAKE_TOKEN not in scrub(f"Authorization: Bearer {FAKE_TOKEN}", ())
 
 
+def test_a_json_quoted_token_field_is_caught_too() -> None:
+    """A real login response, not a hypothetical: `"token":"value"` has a
+
+    closing quote on the *key* in addition to the colon -- found by manually
+    running the manual-page's SQLi-shaped sample against Juice Shop
+    (docs/adr/0009), whose real login response is shaped exactly like this
+    and came back with the JWT sitting unredacted in `body_excerpt`.
+    """
+    body = '{"authentication":{"token":"' + FAKE_TOKEN + '"}}'
+    cleaned = scrub(body, ())
+    assert FAKE_TOKEN not in cleaned
+    assert REDACTED_TOKEN in cleaned
+
+
 def test_sensitive_headers_go_by_name_not_by_value() -> None:
     headers = redact_headers(
         {"X-API-Key": "anything", "Cookie": "session=1", "Accept": "application/json"}, ()

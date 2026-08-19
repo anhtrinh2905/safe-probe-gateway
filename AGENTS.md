@@ -25,15 +25,19 @@ qua allowlist của chính nó; nó không sửa được cấu hình của mộ
 | `src/safe_probe/` | Python tool: client, limits, payload, audit, lớp LLM | — | Có |
 | `scripts/` | Entrypoint bash: up/down/smoke/verify | — | Có |
 | `ui/` | Streamlit demo -- consumer thứ ba của gateway, không phải tool bị kiểm thử | Người | Có |
+| `logs/` | **Output thô của UI công khai**: 1 file jsonl / phiên trình duyệt (`ui/streamlit_app.py`) | Máy | **Không** — regenerate |
 | `docs/` | **Quá trình**: phương pháp, ADR | Người | Có |
-| `data/` | **Output thô**: audit log của tool và của gateway | Máy | **Không** — regenerate |
+| `data/` | **Output thô của CLI/test một-người-dùng**: audit log của tool và của gateway | Máy | **Không** — regenerate |
 | `reports/` | **Kết quả**: báo cáo + bằng chứng + bảng suite | Người | Có |
 | `tests/` | pytest | — | Có |
 
 Ba nhầm lẫn hay gặp:
 
-1. **Đừng để kết luận trong `data/`.** `data/` do `scripts/up.sh` và tool sinh ra,
-   xoá đi chạy lại được. Xoá `data/` không được phép làm mất công sức trí óc nào.
+1. **Đừng để kết luận trong `data/` hoặc `logs/`.** `data/` do `scripts/up.sh` và
+   tool CLI sinh ra; `logs/` do UI Streamlit sinh ra, mỗi phiên trình duyệt một
+   file -- khác `data/` ở chỗ đây là output của một demo công khai, nhiều người
+   dùng cùng lúc, không phải của một người chạy CLI. Cả hai đều xoá đi chạy lại
+   được, không được phép làm mất công sức trí óc nào.
 2. **Đừng để quá trình trong `reports/`.** `reports/2026-08-14_TrinhThiLanAnh_Week4.md`
    trả lời "chứng minh được cái gì". "Làm thế nào và vì sao" thuộc về `docs/`.
 3. **Đừng để chính sách trong code.** Allowlist, rate limit, timeout, kích thước —

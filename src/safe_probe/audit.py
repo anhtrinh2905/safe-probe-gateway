@@ -78,8 +78,16 @@ PHONE_PATTERN = re.compile(r"(?<!\d)(?:\+84|0)(?:[\s.-]?\d){9}(?!\d)")
 # The separator is optional because `Bearer <token>` has none -- with `[:=]`
 # required, the single most common way a credential appears in a log went
 # unmatched. Found by tests/test_redaction.py, not by reading.
+#
+# The `["']?` right after the keyword (mirroring PASSWORD_SHAPED below) is not
+# redundant with the one before the value: a real JSON response has a closing
+# quote on the *key* too (`"token":"eyJ..."`), and without this one the regex
+# tried to consume that closing quote as the value-side quote, then failed to
+# match the colon that follows it as the first character of the token itself.
+# A JWT sailing straight through a real login response's body_excerpt is what
+# this was missing -- not a hypothetical, a request that actually happened.
 SECRET_SHAPED = re.compile(
-    r"(?i)\b(api[-_]?key|authorization|bearer|token)\b\s*[:=]?\s*[\"']?([A-Za-z0-9._\-]{16,})"
+    r"(?i)\b(api[-_]?key|authorization|bearer|token)\b[\"']?\s*[:=]?\s*[\"']?([A-Za-z0-9._\-]{16,})"
 )
 
 # A password field's *value*, not the word "password" alone -- so prose that
