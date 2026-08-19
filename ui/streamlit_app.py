@@ -248,8 +248,8 @@ code, .mono {{ font-family: 'IBM Plex Mono', monospace !important; }}
 }}
 
 /* Section header (render_section_header) -- the boxed, shadowed title bar
-   used for a tab's own heading (Allowlist, Lịch sử phiên, ...), one size
-   down from `.page-header` since it never carries the page's own icon. */
+   used for a tab's own heading (Lịch sử phiên, ...), one size down from
+   `.page-header` since it never carries the page's own icon. */
 .section-hd-title {{
   font-size:1.08rem; font-weight:700; color:{FG};
 }}
@@ -347,9 +347,9 @@ def render_page_header(icon: str, title: str, subtitle: str = "") -> None:
 
 
 def render_section_header(title: str, subtitle: str = "") -> None:
-    """Boxed, shadowed title bar for a tab's own heading (e.g. 'Allowlist
-    dang publish', 'Lich su phien') -- `.section-hd-*` in `inject_css`, one
-    size down from `render_page_header` since these never carry a page icon.
+    """Boxed, shadowed title bar for a tab's own heading (e.g. 'Lich su
+    phien') -- `.section-hd-*` in `inject_css`, one size down from
+    `render_page_header` since these never carry a page icon.
     """
     with st.container(border=True):
         sub_html = f'<div class="section-hd-sub">{subtitle}</div>' if subtitle else ""
@@ -799,11 +799,6 @@ def render_latency_chart(df: pd.DataFrame) -> None:
 
 
 def render_allowlist_tab(client: ProbeClient) -> None:
-    render_section_header(
-        "Allowlist đang publish",
-        "Danh sách này do gateway tự công bố qua `GET /_gateway/routes` -- "
-        "giao diện này không mang theo bản sao nào của policy.",
-    )
     try:
         published = client.routes()
     except RuntimeError as exc:
@@ -949,7 +944,7 @@ def _advance_agent_round(client: ProbeClient) -> None:
 
 def render_agent_tab(client: ProbeClient) -> None:
     st.caption(
-        "`route_id` phải nằm trong allowlist ở tab 'Allowlist', `payload_id` phải nằm "
+        "`route_id` phải nằm trong allowlist ở trang 'Allowlist', `payload_id` phải nằm "
         "trong catalogue payload an toàn -- không viết URL, không đặt header, không "
         "bao giờ thấy API key. Một agent giám sát thứ hai chấm rủi ro cho từng đề xuất: "
         "rủi ro thấp thì gửi luôn, còn lại hiện thẻ chờ bạn Approve/Reject -- cả hai "
@@ -1159,7 +1154,7 @@ def render_agent_tab(client: ProbeClient) -> None:
 {len(sent)} request đã gửi ({auto_sent_count} tự động vì agent giám sát chấm rủi ro thấp,
 {len(sent) - auto_sent_count} do bạn bấm Approve). {len(rejected)} đề xuất bị Reject, không rời
 client. <b>0</b> request chạm route ngoài allowlist -- không có cách nào để chạm, vì route_id
-chỉ có thể là một trong các id ở tab Allowlist.
+chỉ có thể là một trong các id ở trang Allowlist.
 </div>""",
         unsafe_allow_html=True,
     )
@@ -1552,17 +1547,27 @@ def render_history_tab() -> None:
     render_session_log_section()
 
 
+def page_allowlist() -> None:
+    client = get_client()
+    render_page_header(
+        "📋",
+        "Allowlist",
+        "Danh sách này do gateway tự công bố qua `GET /_gateway/routes` -- trang "
+        "này không mang theo bản sao nào của policy.",
+    )
+    render_allowlist_tab(client)
+
+
 def page_agent() -> None:
     client = get_client()
     render_page_header(
         "🤖",
         "Agent AI",
         "LLM đề xuất route_id + payload_id từ hai danh sách đóng, bạn chỉ bấm chạy "
-        "-- xem docs/adr/0002-guardrail-hai-lop.md để biết vì sao chỉ hai định danh.",
+        "-- xem docs/adr/0002-guardrail-hai-lop.md để biết vì sao chỉ hai định danh. "
+        "Allowlist đầy đủ giờ ở trang riêng, xem nav phía trên.",
     )
-    tab_routes, tab_agent, tab_history = st.tabs(["Allowlist", "Chạy Agent", "Lịch sử phiên"])
-    with tab_routes:
-        render_allowlist_tab(client)
+    tab_agent, tab_history = st.tabs(["Chạy Agent", "Lịch sử phiên"])
     with tab_agent:
         render_agent_tab(client)
     with tab_history:
@@ -1587,7 +1592,10 @@ def _init_manual_state() -> None:
 
 
 PAGE_MANUAL = st.Page(page_manual, title="Gửi request thủ công", icon="🛠️", default=True)
+PAGE_ALLOWLIST = st.Page(page_allowlist, title="Allowlist", icon="📋")
 PAGE_AGENT = st.Page(page_agent, title="Agent AI", icon="🤖")
+
+PAGES = [PAGE_MANUAL, PAGE_ALLOWLIST, PAGE_AGENT]
 
 
 def main() -> None:
@@ -1600,9 +1608,9 @@ def main() -> None:
         st.error(f"Lỗi cấu hình: {exc}")
         st.stop()
 
-    pg = st.navigation([PAGE_MANUAL, PAGE_AGENT], position="hidden")
+    pg = st.navigation(PAGES, position="hidden")
 
-    render_top_bar([PAGE_MANUAL, PAGE_AGENT], client)
+    render_top_bar(PAGES, client)
 
     pg.run()
 
