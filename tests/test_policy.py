@@ -25,6 +25,7 @@ sys.path.insert(0, str(GATEWAY_DIR))
 from policy import PolicyError, load_policy  # noqa: E402
 
 POLICY_FILE = GATEWAY_DIR / "policy.yml"
+RAILWAY_POLICY_FILE = GATEWAY_DIR / "policy.railway.yml"
 ENV = {"PROBE_API_KEY": "test-key-for-policy-loading"}
 
 
@@ -69,6 +70,40 @@ def test_a_route_reserved_for_another_group_is_matched_but_not_granted(policy) -
     consumer = policy.consumer_for(ENV["PROBE_API_KEY"])
     assert route is not None and route.id == "metrics"
     assert not (route.groups & consumer.groups), "the 403 case would not be a 403"
+
+
+def test_public_route_shape_names_its_upstream(policy) -> None:
+    """`GET /_gateway/routes` names which backend a route belongs to (docs/adr/0010)
+
+    -- the Allowlist page's lab-app/juice-shop column reads this field.
+    """
+    published = policy.match("POST", "/echo").public()
+    assert published["upstream"] == "lab"
+    published = policy.match("GET", "/api/Products").public()
+    assert published["upstream"] == "juice-shop"
+
+
+# -- Railway's policy is the same allowlist, different upstream hostnames --
+
+
+def test_railway_policy_declares_the_same_routes_as_local(policy) -> None:
+    """docs/adr/0010: Railway is meant to have exact allowlist parity with
+
+    local now, not a reduced one -- this is what keeps that a fact instead of
+    an assertion made once in a commit message and left to drift.
+    """
+    railway = load_policy(RAILWAY_POLICY_FILE, environ={**ENV, "PROBE_ADMIN_KEY": "irrelevant"})
+    local_ids = {(r.id, r.upstream, frozenset(r.methods)) for r in policy.routes}
+    railway_ids = {(r.id, r.upstream, frozenset(r.methods)) for r in railway.routes}
+    assert local_ids == railway_ids
+
+
+def test_railway_policy_uses_railway_internal_hostnames(policy) -> None:
+    railway = load_policy(RAILWAY_POLICY_FILE, environ=ENV)
+    for route in railway.routes:
+        assert route.upstream_url.endswith(".railway.internal:3000") or route.upstream_url.endswith(
+            ".railway.internal:8080"
+        ), f"{route.id} does not point at a *.railway.internal host: {route.upstream_url!r}"
 
 
 # -- the loader ------------------------------------------------------------

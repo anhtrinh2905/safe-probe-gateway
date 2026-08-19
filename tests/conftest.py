@@ -35,6 +35,7 @@ ROUTES_BODY = {
     "routes": [
         {
             "id": "echo",
+            "upstream": "lab",
             "methods": ["POST"],
             "path": "/echo",
             "path_prefix": None,
@@ -43,6 +44,7 @@ ROUTES_BODY = {
         },
         {
             "id": "products",
+            "upstream": "juice-shop",
             "methods": ["GET"],
             "path": "/api/Products",
             "path_prefix": None,
@@ -51,6 +53,7 @@ ROUTES_BODY = {
         },
         {
             "id": "metrics",
+            "upstream": "juice-shop",
             "methods": ["GET"],
             "path": "/metrics",
             "path_prefix": None,

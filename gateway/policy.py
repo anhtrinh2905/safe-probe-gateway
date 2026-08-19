@@ -58,10 +58,15 @@ class Route:
         """What `GET /_gateway/routes` hands back to an authenticated consumer.
 
         Groups are included on purpose: a tool that can see it lacks the group
-        can report "403 was expected here" instead of guessing.
+        can report "403 was expected here" instead of guessing. `upstream` is
+        the policy's own name for the target (e.g. "lab", "juice-shop"), not
+        `upstream_url` -- a caller learns which backend a route belongs to
+        without learning a hostname it has no way to reach directly anyway
+        (see docs/adr/0003-topology-la-bang-chung.md).
         """
         return {
             "id": self.id,
+            "upstream": self.upstream,
             "methods": sorted(self.methods),
             "path": self.path,
             "path_prefix": self.path_prefix,

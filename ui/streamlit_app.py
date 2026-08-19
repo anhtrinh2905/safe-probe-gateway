@@ -76,6 +76,11 @@ SESSION_LOGS_DIR = REPO_ROOT / "logs"
 # transcript and in the results table.
 SENT_DECISIONS = {"approved", "auto_approved"}
 
+# Display label for each upstream key `gateway/policy.yml` uses -- "lab" reads
+# as "lab-app" (the actual service name), "juice-shop" is already fine as is.
+# Same local/Railway policy since docs/adr/0010, so this covers both.
+UPSTREAM_LABELS: dict[str, str] = {"lab": "lab-app", "juice-shop": "juice-shop"}
+
 # Light, professional palette ("Slate Professional") -- picked with the user
 # via docs/adr/... UX proposal: neutral slate/navy text on white, one blue
 # accent, semantic families kept from the previous dark palette (only the
@@ -826,9 +831,14 @@ def render_allowlist_tab(client: ProbeClient) -> None:
     for route in published["routes"]:
         target = route["path"] or (route["path_prefix"] + "*")
         has_access = not route["groups"] or set(route["groups"]) & set(published["groups"])
+        upstream_key = route.get("upstream", "")
         rows.append(
             {
                 "route_id": route["id"],
+                # `policy.py::Route.public()` names the policy's own upstream
+                # key ("lab", "juice-shop") -- mapped to the actual target
+                # name here since "lab" alone doesn't read as "lab-app".
+                "target": UPSTREAM_LABELS.get(upstream_key, upstream_key or "?"),
                 "methods": ", ".join(route["methods"]),
                 "path": target,
                 "groups": ", ".join(route["groups"]) or "-",

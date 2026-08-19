@@ -1,18 +1,12 @@
 # Biến thể của policy.yml cho bản demo public trên Railway. Đọc policy.yml
-# trước -- file này chỉ khác ở hai chỗ, không phải một chính sách mới.
+# trước -- cùng một allowlist, chỉ khác đúng một chỗ: hostname upstream.
 #
-# 1. `upstreams` chỉ còn `lab`. Bản demo public không chạy juice-shop (nặng,
-#    không cần thiết để minh hoạ closed-list / rate-limit / timeout /
-#    truncation), nên route nào trỏ vào juice-shop bị bỏ hẳn -- không để
-#    allowlist quảng cáo một route sẽ luôn 502 vì không có upstream.
-# 2. Hostname `lab-app.railway.internal` thay cho `lab-app` của Docker
-#    Compose: đây là DNS nội bộ Railway (`<service-name>.railway.internal`),
-#    dùng được vì service trên Railway được đặt đúng tên `lab-app`.
-#
-# Hệ quả chấp nhận, đã ghi trong docs/adr/0005-streamlit-demo-tren-railway.md:
-# bản demo này không có route admin-only nào, nên không minh hoạ được nhánh
-# 403 forbidden-group -- nhánh đó vẫn có bằng chứng trong reports/ từ bản
-# local đầy đủ.
+# Docker Compose dùng DNS theo tên service (`juice-shop`, `lab-app`); Railway
+# dùng DNS nội bộ `<service-name>.railway.internal`. Cả hai service (`juice-shop`,
+# `lab-app`) đã được tạo trên Railway đúng tên đó nên chỉ cần đổi hostname,
+# không đổi route nào -- xem docs/adr/0010-railway-them-lai-juice-shop.md cho
+# quyết định đảo ngược ADR 0005 (bản Railway từng bỏ hẳn juice-shop để tiết
+# kiệm compute; giờ thêm lại để demo "🔴 Login SQLi" hoạt động được công khai).
 #
 # Chọn file này bằng biến môi trường GATEWAY_POLICY (gateway/app.py đã đọc
 # biến này từ trước), không sửa gì trong code.
@@ -35,9 +29,47 @@ consumers:
     groups: [probe, admin]
 
 upstreams:
+  juice-shop: http://juice-shop.railway.internal:3000
   lab: http://lab-app.railway.internal:8080
 
 routes:
+  # -- OWASP Juice Shop: read-only, plus one POST that cannot mutate anything --
+
+  - id: products-search
+    upstream: juice-shop
+    methods: [GET]
+    path: /rest/products/search
+    groups: [probe]
+    note: takes ?q= -- the main place safe payloads are sent
+
+  - id: products
+    upstream: juice-shop
+    methods: [GET]
+    path: /api/Products
+    groups: [probe]
+
+  - id: app-version
+    upstream: juice-shop
+    methods: [GET]
+    path: /rest/admin/application-version
+    groups: [probe]
+
+  - id: login
+    upstream: juice-shop
+    methods: [POST]
+    path: /rest/user/login
+    groups: [probe]
+    note: wrong credentials return 401 and write nothing -- known SQLi login-bypass challenge, see docs/adr/0009
+
+  - id: metrics
+    upstream: juice-shop
+    methods: [GET]
+    path: /metrics
+    groups: [admin]
+    note: in the allowlist but not for agent-tool -- this is what makes 403 real
+
+  # -- lab-app: exists so the limits can be proven, not guessed --
+
   - id: echo
     upstream: lab
     methods: [POST]
@@ -65,6 +97,3 @@ routes:
     path_prefix: /status/
     groups: [probe]
     note: /status/418 -- lets the tool's status mapping be tested end to end
-
-# Deliberately absent here (present in policy.yml for the local/full stack):
-# every juice-shop route, because this deployment has no juice-shop upstream.

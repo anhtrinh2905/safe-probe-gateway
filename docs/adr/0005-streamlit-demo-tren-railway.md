@@ -1,7 +1,9 @@
 # ADR 0005 — Streamlit demo là một consumer riêng, deploy lab-app-only lên Railway
 
 - **Ngày:** 2026-08-14
-- **Trạng thái:** Accepted
+- **Trạng thái:** Accepted -- **Quyết định 2 (bỏ Juice Shop) đã bị đảo ngược
+  bởi [ADR 0010](0010-railway-them-lai-juice-shop.md)**; Quyết định 1, 3, 4
+  dưới đây vẫn còn hiệu lực nguyên vẹn.
 - **Liên quan:** `ui/`, `gateway/policy.railway.yml`, ADR 0002, ADR 0003
 
 ## Bối cảnh

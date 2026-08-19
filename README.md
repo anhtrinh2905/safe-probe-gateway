@@ -1,4 +1,4 @@
-# api_gateway
+# Safe Probe Gateway + Guardrails
 
 Một **API Gateway** đặt trước hai ứng dụng thử nghiệm, và một **Python tool** chỉ
 biết đúng một địa chỉ: gateway. Agent đề xuất request kiểm thử an toàn; gateway
@@ -21,6 +21,8 @@ quyết định — không cần clone repo hay chạy Docker. Bản deploy ch�
 
 ---
 
+
+
 ## Bằng chứng ngắn nhất
 
 ```
@@ -39,19 +41,23 @@ nào trong ba trường hợp đó có gì để kết nối tới.
 
 ---
 
+
+
 ## Kết quả
 
-| | |
-|---|---|
-| Kiểm tra gateway bằng `curl` (`scripts/smoke.sh`) | **14 / 14 pass** |
-| Request payload an toàn đã gửi (`probe suite`) | **72** |
-| Test tự động | **112 pass** |
-| Endpoint tuần 3 khai thác được, nay không tới được | **2** — `/ftp`, `/rest/basket/{id}` |
-| API key xuất hiện trong log | **0** |
 
-**Báo cáo đầy đủ:** [`reports/2026-08-14_TrinhThiLanAnh_Week4.md`](reports/2026-08-10_TrinhThiLanAnh_Track0.md)  
-Khái niệm gateway viết lại bằng cách em hiểu: [`reports/cac_khai_niem.md`](reports/cac_khai_niem.md)  
-Transcript từng mã lỗi: [`reports/evidence/`](reports/evidence/)
+|                                                    |                                     |
+| -------------------------------------------------- | ----------------------------------- |
+| Kiểm tra gateway bằng `curl` (`scripts/smoke.sh`)  | **14 / 14 pass**                    |
+| Request payload an toàn đã gửi (`probe suite`)     | **72**                              |
+| Test tự động                                       | **112 pass**                        |
+| Endpoint tuần 3 khai thác được, nay không tới được | **2** — `/ftp`, `/rest/basket/{id}` |
+| API key xuất hiện trong log                        | **0**                               |
+
+
+**Báo cáo đầy đủ:** `[reports/2026-08-14_TrinhThiLanAnh_Week4.md](reports/2026-08-10_TrinhThiLanAnh_Track0.md)`  
+Khái niệm gateway viết lại bằng cách em hiểu: `[reports/cac_khai_niem.md](reports/cac_khai_niem.md)`  
+Transcript từng mã lỗi: `[reports/evidence/](reports/evidence/)`
 
 **Quan sát đáng chú ý:** payload `special-quotes` — đúng hai ký tự `"` và `'`,
 không có `OR`, không có `UNION`, không có comment — làm `GET /rest/products/search`
@@ -66,6 +72,8 @@ một lớp lỗ hổng phát hiện được bằng payload không hề mang t�
 `reports/evidence/juice-shop-11-safe-payload-500.txt`.
 
 ---
+
+
 
 ## Kiến trúc
 
@@ -94,29 +102,35 @@ nguyên vẹn.
 
 ---
 
+
+
 ## Repo này được tổ chức thế nào
 
-| Thư mục | Chứa gì |
-|---|---|
-| `gateway/` | Gateway: `app.py` (generic) + `policy.yml` (**toàn bộ chính sách**) |
-| `targets/lab-app/` | Ứng dụng nhỏ để chứng minh các giới hạn |
-| `src/safe_probe/` | Python tool — stdlib-only |
-| `ui/` | Streamlit demo — consumer thứ ba của gateway |
-| `scripts/` | `up.sh` `down.sh` `smoke.sh` `verify.sh` |
-| `docs/` | **Quá trình**: phương pháp + 5 ADR |
-| `data/` | **Output máy**: audit log của tool và của gateway — xoá được |
-| `reports/` | **Kết quả**: báo cáo + bằng chứng + bảng suite |
-| `tests/` | 112 test |
+
+| Thư mục            | Chứa gì                                                             |
+| ------------------ | ------------------------------------------------------------------- |
+| `gateway/`         | Gateway: `app.py` (generic) + `policy.yml` (**toàn bộ chính sách**) |
+| `targets/lab-app/` | Ứng dụng nhỏ để chứng minh các giới hạn                             |
+| `src/safe_probe/`  | Python tool — stdlib-only                                           |
+| `ui/`              | Streamlit demo — consumer thứ ba của gateway                        |
+| `scripts/`         | `up.sh` `down.sh` `smoke.sh` `verify.sh`                            |
+| `docs/`            | **Quá trình**: phương pháp + 5 ADR                                  |
+| `data/`            | **Output máy**: audit log của tool và của gateway — xoá được        |
+| `reports/`         | **Kết quả**: báo cáo + bằng chứng + bảng suite                      |
+| `tests/`           | 112 test                                                            |
+
 
 Ba ranh giới cần giữ:
 
-1. **Chính sách nằm trong `policy.yml`, không nằm trong `app.py`.** Thấy một
-   `if path == ...` trong code gateway là dấu hiệu chính sách đang rò rỉ.
-2. **`src/safe_probe/` không được import `gateway/`.** Nếu tool đọc được policy,
-   guardrail lại quay về trong tiến trình.
-3. **`data/` vứt đi lúc nào cũng được.** Xoá nó không được làm mất công sức trí óc nào.
+1. **Chính sách nằm trong** `policy.yml`**, không nằm trong** `app.py`**.** Thấy một
+  `if path == ...` trong code gateway là dấu hiệu chính sách đang rò rỉ.
+2. `src/safe_probe/` **không được import** `gateway/`**.** Nếu tool đọc được policy,
+  guardrail lại quay về trong tiến trình.
+3. `data/` **vứt đi lúc nào cũng được.** Xoá nó không được làm mất công sức trí óc nào.
 
 ---
+
+
 
 ## Chạy
 
@@ -163,20 +177,27 @@ PYTHONPATH=src streamlit run ui/streamlit_app.py
 
 ---
 
+
+
 ## Đọc theo thứ tự nào
 
 1. `gateway/policy.yml` — toàn bộ bề mặt an ninh, 100 dòng, đọc hết trong một phút
 2. `docker-compose.yml` — khối `networks` ở cuối là luận điểm chính
-3. [`docs/adr/0003-topology-la-bang-chung.md`](docs/adr/0003-topology-la-bang-chung.md) — vì sao khối đó quan trọng hơn mọi thứ khác
-4. [`docs/methodology.md`](docs/methodology.md) — bốn lớp kiểm soát, xếp từ yếu tới mạnh
-5. [`reports/2026-08-10_TrinhThiLanAnh_Track0.md`](reports/2026-08-10_TrinhThiLanAnh_Track0.md) — báo cáo đầy đủ
+3. `[docs/adr/0003-topology-la-bang-chung.md](docs/adr/0003-topology-la-bang-chung.md)` — vì sao khối đó quan trọng hơn mọi thứ khác
+4. `[docs/methodology.md](docs/methodology.md)` — bốn lớp kiểm soát, xếp từ yếu tới mạnh
+5. `[reports/2026-08-10_TrinhThiLanAnh_Track0.md](reports/2026-08-10_TrinhThiLanAnh_Track0.md)` — báo cáo đầy đủ
+
+
 
 ## ADR
 
-| | |
-|---|---|
-| [0001](docs/adr/0001-gateway-tu-viet.md) | Gateway tự viết thay vì Kong hoặc Nginx |
-| [0002](docs/adr/0002-guardrail-hai-lop.md) | Guardrail hai lớp, và LLM chỉ được chọn hai định danh |
-| [0003](docs/adr/0003-topology-la-bang-chung.md) | Target không publish port: topology là bằng chứng |
-| [0004](docs/adr/0004-payload-an-toan-la-bat-bien.md) | "Payload an toàn" là bất biến có test |
+
+|                                                      |                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| [0001](docs/adr/0001-gateway-tu-viet.md)             | Gateway tự viết thay vì Kong hoặc Nginx                           |
+| [0002](docs/adr/0002-guardrail-hai-lop.md)           | Guardrail hai lớp, và LLM chỉ được chọn hai định danh             |
+| [0003](docs/adr/0003-topology-la-bang-chung.md)      | Target không publish port: topology là bằng chứng                 |
+| [0004](docs/adr/0004-payload-an-toan-la-bat-bien.md) | "Payload an toàn" là bất biến có test                             |
 | [0005](docs/adr/0005-streamlit-demo-tren-railway.md) | Streamlit demo là consumer riêng, deploy lab-app-only lên Railway |
+
+
