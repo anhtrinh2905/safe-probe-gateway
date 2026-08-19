@@ -3,6 +3,7 @@
 # gets uploaded to Railway -- not just out of git.
 .env
 data/
+logs/
 
 __pycache__/
 *.pyc
