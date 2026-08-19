@@ -16,8 +16,11 @@ anything, no matter how they render.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from typing import Any
 
-from safe_probe.plan import Proposal, send_probe
+from safe_probe.llm import LLMError
+from safe_probe.plan import Proposal, Verdict, judge_proposal, send_probe, should_auto_send
 
 
 def _logged_paths(tmp_path) -> list[str]:
@@ -53,3 +56,38 @@ def test_an_approved_proposal_is_actually_sent_and_logged(make_client, tmp_path)
     assert result.ok
     assert result.path == "/echo"
     assert "/echo" in _logged_paths(tmp_path), "the approved send must be audited"
+
+
+# -- judge agent: should_auto_send is the only chokepoint the UI consults ----
+#
+# These are deterministic (no real LLM call) because the property under test
+# is the boundary itself -- "low" skips the click, anything else doesn't --
+# not what any particular model decides. `tests/test_judge_agent.py` covers
+# the real-LLM, adversarial side of `judge_proposal`.
+
+
+def test_should_auto_send_is_true_only_for_low_risk() -> None:
+    assert should_auto_send(Verdict(risk="low", reasoning="")) is True
+    assert should_auto_send(Verdict(risk="needs_review", reasoning="")) is False
+
+
+class _RaisingLLM:
+    """Stands in for `LLMClient`: any call to `ask_json` fails like a dead
+    model gateway would (no key, network down, out of retries).
+    """
+
+    def ask_json(self, system: str, user: str, validate: Callable[[Any], str | None]) -> dict:
+        raise LLMError("model gateway unreachable (simulated)")
+
+
+def test_judge_proposal_fails_safe_to_needs_review_when_the_llm_is_unusable(make_client) -> None:
+    client = make_client()
+    published = client.routes()
+    proposal = Proposal(route_id="echo", payload_id="empty-string", why="input validation probe")
+
+    # A person never sees a stack trace here: whatever breaks in the judge
+    # call, the proposal must still land on `needs_review`, never on "low".
+    verdict = judge_proposal(proposal, "input validation", published, llm=_RaisingLLM())
+
+    assert verdict.risk == "needs_review"
+    assert should_auto_send(verdict) is False

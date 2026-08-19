@@ -6,6 +6,8 @@ báo cáo này **chỉ nói về ba việc mới của tuần 5**, không lặp 
 viết ở đó.
 
 Chi tiết quyết định kỹ thuật và đánh đổi: [`docs/adr/0006-guardrail-tuan-5.md`](../docs/adr/0006-guardrail-tuan-5.md).
+Phần bổ sung sau báo cáo gốc (agent giám sát rủi ro) có quyết định riêng ở
+[`docs/adr/0007-agent-giam-sat-rui-ro.md`](../docs/adr/0007-agent-giam-sat-rui-ro.md).
 
 ## Mục lục
 
@@ -17,6 +19,7 @@ Chi tiết quyết định kỹ thuật và đánh đổi: [`docs/adr/0006-guard
 - [5. Sản phẩm bàn giao](#5-sản-phẩm-bàn-giao)
 - [6. Tiêu chí hoàn thành](#6-tiêu-chí-hoàn-thành)
 - [7. Giới hạn đã biết](#7-giới-hạn-đã-biết)
+- [8. Bổ sung: Agent giám sát rủi ro](#8-bổ-sung-agent-giám-sát-rủi-ro)
 
 ## Mục tiêu
 
@@ -174,6 +177,17 @@ hỏng) cộng 7 test mới của tuần 5 đều **PASS** — không có test n
 | `tests/test_approval_gate.py` | 2 | ✅ PASS |
 | `tests/test_redaction.py` | 2 (+ 2 assertion cập nhật) | ✅ PASS |
 
+Sau khi thêm agent giám sát rủi ro ([§8](#8-bổ-sung-agent-giám-sát-rủi-ro)),
+bộ test tăng lên **123 test, toàn bộ PASS** (thêm 2 case tất định vào
+`test_approval_gate.py` và 2 case LLM thật trong `tests/test_judge_agent.py`
+mới):
+
+```
+$ pytest tests/ -v
+...
+123 passed
+```
+
 ## 5. Sản phẩm bàn giao
 
 - ✅ Bộ lọc Prompt Injection cơ bản — `plan.py::SYSTEM_PROMPT` (3 rule) + stub
@@ -184,6 +198,9 @@ hỏng) cộng 7 test mới của tuần 5 đều **PASS** — không có test n
   key, password, PII chung).
 - ✅ Bộ kiểm thử: 2 prompt injection + 2 phê duyệt + 2 dữ liệu nhạy cảm (đủ
   tối thiểu đề bài yêu cầu), tổng cộng 119 test pass.
+- ✅ Agent giám sát rủi ro (bổ sung, [§8](#8-bổ-sung-agent-giám-sát-rủi-ro)) —
+  `plan.py::judge_proposal`/`should_auto_send`, UI tự gửi khi rủi ro thấp,
+  fail-safe về "cần duyệt" khi lớp LLM lỗi. Tổng bộ test sau bổ sung: 123 pass.
 
 ## 6. Tiêu chí hoàn thành
 
@@ -208,3 +225,41 @@ hỏng) cộng 7 test mới của tuần 5 đều **PASS** — không có test n
   `OPENCODE_API_KEY`/Docker thật, không chạy trong `pytest tests/` mặc định
   nếu thiếu key — ranh giới sẵn có của repo (`AGENTS.md`), không phải nợ kỹ
   thuật mới do tuần này để lại.
+
+## 8. Bổ sung: Agent giám sát rủi ro
+
+Ý tưởng ban đầu: nếu có một agent thứ hai *đọc* đề xuất của agent thứ nhất và
+tự đánh giá an toàn hay không, thì phần "an toàn" khỏi cần người bấm duyệt,
+chỉ phần "không an toàn" mới cần human-in-the-loop. Đọc thẳng như vậy thì đây
+là đúng lỗi ADR 0002 đã sửa từ tuần 3 — để một LLM tự quyết định cái gì được
+đi tiếp. Quyết định đầy đủ và đánh đổi ở
+[`docs/adr/0007-agent-giam-sat-rui-ro.md`](../docs/adr/0007-agent-giam-sat-rui-ro.md);
+mục này chỉ tóm tắt phần "chứng minh được cái gì".
+
+**Thiết kế:** `plan.py::judge_proposal` — model thứ hai (có thể khác model
+đề xuất, qua `CUSTOM_JUDGE_MODEL`) chấm một `Proposal` *đã qua* `_validate()`
+thành `Verdict(risk="low" | "needs_review", reasoning=...)`. Tab "Agent AI"
+dùng đúng một hàm thuần, `should_auto_send(verdict)`, để quyết định: `"low"`
+thì gọi `send_probe()` ngay, không hiện thẻ; ngược lại giữ nguyên thẻ phê
+duyệt của ADR 0006, giờ hiện thêm nhận định của agent giám sát. Bất biến giữ
+nguyên: `send_probe()` vẫn là chỗ duy nhất một request thật được tạo, gọi
+giống hệt nhau dù lối vào là "người bấm Approve" hay "judge nói an toàn" —
+verdict không bao giờ đổi `route_id`/`payload_id`, không tạo ra được request
+nào mà một cú click Approve không thể tạo ra.
+
+**Fail-safe:** mọi lỗi từ lớp LLM khi chấm điểm được bắt ngay trong
+`judge_proposal` và trả về `needs_review`, không bao giờ mặc định thành
+`low` — cùng logic từ chối-nhầm-rẻ-hơn-bỏ-lọt đã dùng ở ADR 0004/0006.
+
+**Kiểm thử:**
+
+| File | Số case mới | Kết quả |
+| --- | --- | --- |
+| `tests/test_judge_agent.py` (mới) | 2 (LLM thật — đề xuất lành tính; `why` mang injection ép "low" + đòi lộ system prompt/key) | ✅ PASS |
+| `tests/test_approval_gate.py` | 2 (tất định — `should_auto_send` cả hai nhánh; fail-safe khi LLM giả lập ném lỗi) | ✅ PASS |
+
+Tổng bộ test toàn repo sau bổ sung: **123 passed**, không có test nào bị bỏ
+qua khi có `OPENCODE_API_KEY`.
+
+**Phạm vi:** chỉ tab "Agent AI" — trang "Gửi request thủ công" và
+`run_plan()`/CLI không đổi.

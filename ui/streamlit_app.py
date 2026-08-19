@@ -37,11 +37,25 @@ from safe_probe.config import Config, ConfigError
 from safe_probe.llm import LLMClient, LLMError
 from safe_probe.payloads import UnsafePayload
 from safe_probe.payloads import get as get_payload
-from safe_probe.plan import Proposal, propose_round, send_probe
+from safe_probe.plan import (
+    Proposal,
+    Verdict,
+    judge_proposal,
+    propose_round,
+    send_probe,
+    should_auto_send,
+)
 
 MAX_RUNS_PER_SESSION = 5
 MAX_ROUNDS = 6
 DEMO_LOG_PATH = Path("/tmp/streamlit-probe/requests.jsonl")
+
+# A proposal that actually reached `send_probe` -- whether a human clicked
+# Approve, or the judge agent (`plan.py::judge_proposal`) rated it "low" and
+# `should_auto_send` skipped the click. Both mean the same thing downstream:
+# a real request went out and its result belongs in the next round's
+# transcript and in the results table.
+SENT_DECISIONS = {"approved", "auto_approved"}
 
 # Light, professional palette ("Slate Professional") -- picked with the user
 # via docs/adr/... UX proposal: neutral slate/navy text on white, one blue
@@ -777,12 +791,22 @@ def _route_endpoint(published: dict, route_id: str) -> tuple[str, str]:
     return route["methods"][0], route["path"] or (route["path_prefix"] + "*")
 
 
-def render_approval_card(published: dict, proposal: Proposal, round_no: int, rounds: int) -> str:
+def render_approval_card(
+    published: dict,
+    proposal: Proposal,
+    round_no: int,
+    rounds: int,
+    verdict: Verdict | None = None,
+) -> str:
     """Endpoint + payload + purpose, the three things week 5 requires shown
 
     before a POST or payload-carrying request goes out -- an agent proposal
     always carries a `payload_id` (see docs/adr/0006), so every one of these
-    goes through this gate, not just the POST ones.
+    goes through this gate, not just the POST ones. `render_agent_tab` only
+    calls this for proposals the judge agent (`plan.py::judge_proposal`)
+    rated `needs_review` -- a caller-side choice, not something this function
+    enforces -- so the badge below always reflects whatever `verdict.risk`
+    it is actually given, rather than assuming it is always `needs_review`.
 
     Returns the decision: "approve", "reject", or "" (no button clicked yet).
     """
@@ -795,6 +819,10 @@ def render_approval_card(published: dict, proposal: Proposal, round_no: int, rou
         shown = repr(payload.value)
         st.code(shown if len(shown) <= 200 else shown[:200] + "...", language=None)
         st.markdown(f"**Mục đích (agent tự giải thích):** {proposal.why or '(không có)'}")
+        if verdict is not None:
+            reasoning = verdict.reasoning or "(không có)"
+            badge = "🟢 rủi ro thấp" if verdict.risk == "low" else "🟡 cần xem kỹ"
+            st.markdown(f"**Nhận định của agent giám sát:** {badge} -- {reasoning}")
         col_a, col_r = st.columns(2)
         if col_a.button("✅ Approve & gửi", key=f"approve_{round_no}_{proposal.route_id}"):
             return "approve"
@@ -816,13 +844,13 @@ def _advance_agent_round(client: ProbeClient) -> None:
         f"answered by {d['result'].answered_by}); "
         f"body: {d['result'].body_excerpt[:200]!r}"
         for d in state["decisions"]
-        if d["round"] == state["round_no"] and d["decision"] == "approved"
+        if d["round"] == state["round_no"] and d["decision"] in SENT_DECISIONS
     ]
     transcript = "\n".join(lines)
     if state["round_no"] >= state["rounds"]:
         state["finished"] = True
         return
-    with st.spinner("Agent đang đề xuất vòng tiếp theo..."):
+    with st.spinner("Agent đang đề xuất vòng tiếp theo và agent giám sát đang chấm rủi ro..."):
         try:
             proposals, reasoning, published = propose_round(
                 client, state["goal"], state["round_no"] + 1, state["rounds"], transcript,
@@ -839,9 +867,17 @@ def _advance_agent_round(client: ProbeClient) -> None:
             state["error"] = str(exc)
             state["finished"] = True
             return
+        # `.get()`, not a bare subscript: a session_state dict from before this
+        # field existed must still degrade gracefully (same-model judge, not a
+        # crash) -- same fallback `pending_verdicts` gets below. Falling back
+        # to `state["llm"]` rather than building a fresh client here avoids
+        # introducing a second `LLMError` site this deep in a click handler.
+        judge_llm = state.get("judge_llm") or state["llm"]
+        verdicts = [judge_proposal(p, state["goal"], published, judge_llm) for p in proposals]
     state["round_no"] += 1
     state["published"] = published
     state["pending"] = proposals
+    state["pending_verdicts"] = verdicts
     state["reasoning"].append(reasoning)
 
 
@@ -849,8 +885,10 @@ def render_agent_tab(client: ProbeClient) -> None:
     st.caption(
         "`route_id` phải nằm trong allowlist ở tab 'Allowlist', `payload_id` phải nằm "
         "trong catalogue payload an toàn -- không viết URL, không đặt header, không "
-        "bao giờ thấy API key. Mỗi đề xuất phải được bạn Approve hoặc Reject trước khi "
-        "tool thực sự gửi -- xem AGENTS.md / docs/adr/0006."
+        "bao giờ thấy API key. Một agent giám sát thứ hai chấm rủi ro cho từng đề xuất: "
+        "rủi ro thấp thì gửi luôn, còn lại hiện thẻ chờ bạn Approve/Reject -- cả hai "
+        "trường hợp đều đi qua đúng một cổng gửi request, không có ngoại lệ nào nằm "
+        "ngoài allowlist. Xem AGENTS.md / docs/adr/0006 / docs/adr/0007."
     )
 
     if not _run_gate_ok():
@@ -889,21 +927,25 @@ def render_agent_tab(client: ProbeClient) -> None:
 
     if st.button("Chạy agent", disabled=remaining <= 0 or run_in_progress):
         st.session_state["run_count"] += 1
-        with st.spinner("Agent đang đề xuất probe đầu tiên..."):
+        with st.spinner("Agent đang đề xuất probe đầu tiên và agent giám sát đang chấm rủi ro..."):
             try:
                 llm = LLMClient.from_env()
+                judge_llm = LLMClient.from_env(model_env_key="CUSTOM_JUDGE_MODEL")
                 proposals, reasoning, published = propose_round(client, goal, 1, rounds, "", llm)
             except LLMError as exc:
                 st.error(f"Lớp LLM không dùng được: {exc}")
                 st.session_state.pop("agent_run", None)
             else:
+                verdicts = [judge_proposal(p, goal, published, judge_llm) for p in proposals]
                 st.session_state["agent_run"] = {
                     "goal": goal,
                     "rounds": rounds,
                     "round_no": 1,
                     "llm": llm,
+                    "judge_llm": judge_llm,
                     "published": published,
                     "pending": proposals,
+                    "pending_verdicts": verdicts,
                     "reasoning": [reasoning],
                     "decisions": [],
                     "finished": False,
@@ -926,10 +968,14 @@ def render_agent_tab(client: ProbeClient) -> None:
 
     if state["pending"] and not state["finished"]:
         proposal = state["pending"][0]
-        decision = render_approval_card(
-            state["published"], proposal, state["round_no"], state["rounds"]
+        # Missing entry (older session_state shape, before this field existed)
+        # fails safe to needs_review -- never auto-send without a verdict.
+        pending_verdicts = state.get("pending_verdicts") or []
+        verdict = (
+            pending_verdicts[0] if pending_verdicts else Verdict(risk="needs_review", reasoning="")
         )
-        if decision == "approve":
+
+        def _record_sent(decision_label: str) -> None:
             try:
                 result = send_probe(client, state["published"], proposal)
             except (KeyError, UnsafePayload, StopIteration) as exc:
@@ -942,6 +988,7 @@ def render_agent_tab(client: ProbeClient) -> None:
                         "proposal": proposal,
                         "decision": "send_failed",
                         "result": None,
+                        "verdict": verdict,
                         "error": str(exc),
                     }
                 )
@@ -950,12 +997,37 @@ def render_agent_tab(client: ProbeClient) -> None:
                     {
                         "round": state["round_no"],
                         "proposal": proposal,
-                        "decision": "approved",
+                        "decision": decision_label,
                         "result": result,
+                        "verdict": verdict,
                     }
                 )
                 st.session_state["history"].append((proposal, result))
+
+        def _pop_pending() -> None:
             state["pending"].pop(0)
+            if pending_verdicts:
+                pending_verdicts.pop(0)
+
+        if should_auto_send(verdict):
+            # Judge rated this "low" -- no card, no click. `should_auto_send`
+            # is the only thing that changed here: `send_probe` is the exact
+            # same call an Approve click makes below, so the judge never
+            # grants anything beyond what a human clicking Approve already
+            # could have sent.
+            _record_sent("auto_approved")
+            _pop_pending()
+            if not state["pending"]:
+                _advance_agent_round(client)
+            st.rerun()
+            return
+
+        decision = render_approval_card(
+            state["published"], proposal, state["round_no"], state["rounds"], verdict
+        )
+        if decision == "approve":
+            _record_sent("approved")
+            _pop_pending()
             if not state["pending"]:
                 _advance_agent_round(client)
             st.rerun()
@@ -966,23 +1038,37 @@ def render_agent_tab(client: ProbeClient) -> None:
                     "proposal": proposal,
                     "decision": "rejected",
                     "result": None,
+                    "verdict": verdict,
                 }
             )
-            state["pending"].pop(0)
+            _pop_pending()
             if not state["pending"]:
                 _advance_agent_round(client)
             st.rerun()
         return
 
-    approved = [
-        (d["proposal"], d["result"]) for d in state["decisions"] if d["decision"] == "approved"
-    ]
+    sent_decisions = [d for d in state["decisions"] if d["decision"] in SENT_DECISIONS]
+    sent = [(d["proposal"], d["result"]) for d in sent_decisions]
+    auto_sent_count = sum(1 for d in state["decisions"] if d["decision"] == "auto_approved")
     rejected = [d for d in state["decisions"] if d["decision"] == "rejected"]
 
-    df = _results_dataframe(approved)
+    df = _results_dataframe(sent)
     if df.empty:
         st.warning("Chưa có request nào được gửi -- mọi đề xuất đều bị Reject hoặc chưa duyệt.")
     else:
+        # Judge verdict per row, same order as `sent_decisions` -- kept out of
+        # `_results_dataframe` itself since `render_history_tab` reuses that
+        # function for manual-page sends, which never carry a verdict.
+        df["gui_boi"] = [
+            "tự động (rủi ro thấp)" if d["decision"] == "auto_approved" else "Approve"
+            for d in sent_decisions
+        ]
+        df["muc_do_rui_ro"] = [
+            (d["verdict"].risk if d.get("verdict") else "-") for d in sent_decisions
+        ]
+        df["nhan_dinh_giam_sat"] = [
+            (d["verdict"].reasoning if d.get("verdict") else "") for d in sent_decisions
+        ]
         chart_col, table_col = st.columns([1, 1])
         with chart_col:
             st.caption("Phân bố outcome (lượt này)")
@@ -1003,7 +1089,8 @@ def render_agent_tab(client: ProbeClient) -> None:
 
     st.markdown(
         f"""<div class="insight-card">
-{len(approved)} request đã gửi (được Approve). {len(rejected)} đề xuất bị Reject, không rời
+{len(sent)} request đã gửi ({auto_sent_count} tự động vì agent giám sát chấm rủi ro thấp,
+{len(sent) - auto_sent_count} do bạn bấm Approve). {len(rejected)} đề xuất bị Reject, không rời
 client. <b>0</b> request chạm route ngoài allowlist -- không có cách nào để chạm, vì route_id
 chỉ có thể là một trong các id ở tab Allowlist.
 </div>""",

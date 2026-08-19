@@ -52,7 +52,14 @@ class LLMClient:
         )
 
     @classmethod
-    def from_env(cls) -> LLMClient:
+    def from_env(cls, model_env_key: str = "CUSTOM_SCAN_MODEL") -> LLMClient:
+        """Build a client from the environment.
+
+        `model_env_key` lets a second caller (the judge agent in `plan.py`)
+        pick a different model than the proposer via `CUSTOM_JUDGE_MODEL`,
+        without a second client class -- falls back to `CUSTOM_SCAN_MODEL`
+        when that variable is unset, so model diversity is opt-in.
+        """
         env = load_env()
         key = (env.get("OPENCODE_API_KEY") or "").strip()
         if not key:
@@ -63,7 +70,7 @@ class LLMClient:
         return cls(
             base_url=(env.get("OPENCODE_BASE_URL") or "https://opencode.ai/zen/go/v1").rstrip("/"),
             api_key=key,
-            model=env.get("CUSTOM_SCAN_MODEL") or "deepseek-v4-pro",
+            model=env.get(model_env_key) or env.get("CUSTOM_SCAN_MODEL") or "deepseek-v4-pro",
         )
 
     def _post(self, messages: list[dict[str, str]], json_mode: bool) -> str:
