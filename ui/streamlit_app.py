@@ -188,6 +188,12 @@ code, .mono {{ font-family: 'IBM Plex Mono', monospace !important; }}
 [data-testid="stPageLink"] {{
   border-radius: 8px; margin: 0.1rem 0;
 }}
+/* Belt and braces alongside NAV_LINK_WIDTHS in render_top_bar: if a nav
+   column is ever narrow enough to matter again, the label wraps onto a
+   second line instead of clipping mid-word. */
+[data-testid="stPageLink"] p {{
+  white-space: normal !important; word-break: break-word;
+}}
 [data-testid="stPageLink"] a[aria-current="page"] {{
   background: {ACCENT_SOFT} !important;
 }}
@@ -370,13 +376,17 @@ def render_top_bar(pages: list[st.Page], client: ProbeClient) -> None:
     boxed, shadowed strip instead of a row of widgets floating on the page.
     """
     with st.container(border=True):
+        # nav_col widened from 2.0 -> 2.6 (brand/status trimmed to make room)
+        # -- three equal-width links clipped "Gửi request thủ công" (see
+        # NAV_LINK_WIDTHS below for the per-link split inside this column).
         brand_col, nav_col, status_col = st.columns(
-            [1.3, 2.0, 2.7], vertical_alignment="center"
+            [1.1, 2.6, 2.5], vertical_alignment="center"
         )
         with brand_col:
             st.markdown('<div class="topbar-brand">🧭 Gateway Demo</div>', unsafe_allow_html=True)
         with nav_col:
-            link_cols = st.columns(len(pages))
+            widths = [NAV_LINK_WIDTHS.get(p.title, 1.0) for p in pages]
+            link_cols = st.columns(widths)
             for col, page in zip(link_cols, pages, strict=True):
                 with col:
                     st.page_link(page)
@@ -1595,7 +1605,20 @@ PAGE_MANUAL = st.Page(page_manual, title="Gửi request thủ công", icon="🛠
 PAGE_ALLOWLIST = st.Page(page_allowlist, title="Allowlist", icon="📋")
 PAGE_AGENT = st.Page(page_agent, title="Agent AI", icon="🤖")
 
-PAGES = [PAGE_MANUAL, PAGE_ALLOWLIST, PAGE_AGENT]
+# Nav order: Allowlist first (what you're allowed to touch), then the two
+# ways of touching it. `PAGE_MANUAL.default=True` is independent of this
+# order -- the app still opens on "Gửi request thủ công".
+PAGES = [PAGE_ALLOWLIST, PAGE_MANUAL, PAGE_AGENT]
+
+# Relative width for each nav link in `render_top_bar`'s `nav_col`, keyed by
+# title -- "Gửi request thủ công" is roughly twice as many characters as the
+# other two, and an equal three-way split (`st.columns(len(pages))`) clipped
+# it. Falls back to 1.0 for any page not listed here.
+NAV_LINK_WIDTHS: dict[str, float] = {
+    "Gửi request thủ công": 1.7,
+    "Allowlist": 1.0,
+    "Agent AI": 1.0,
+}
 
 
 def main() -> None:
